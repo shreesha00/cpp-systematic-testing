@@ -20,6 +20,6 @@ jobs:
         run: .\scripts\build.bat
         shell: pwsh
       
-      - name: Run the tests
-        run: .\scripts\run-tests.bat
-        shell: pwsh
+#      - name: Run the tests
+#        run: .\scripts\run-tests.bat
+#        shell: pwsh

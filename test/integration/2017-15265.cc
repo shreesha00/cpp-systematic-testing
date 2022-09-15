@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <malloc.h>
 #include <string.h>
-//#include <io.h>
+//#include <unistd.h>
 #include <time.h>
 
 #include "test.h"
@@ -10,7 +10,7 @@
 #include "systematic_testing_resources.h"
 //#define MUTEX_FOR_CORRECT_EXE_SEQUENCE
 #ifdef MUTEX_FOR_CORRECT_EXE_SEQUENCE
-Resources::SynchronizedResource* lock_for_correct_exe;
+pthread_mutex_t lock_for_correct_exe;
 #endif
 
 // #define TEST_TIME
@@ -39,6 +39,8 @@ struct snd_seq_client {
 	Resources::SynchronizedResource* ports_mutex;
 	Resources::SynchronizedResource* ports_lock;
 };
+
+std::unordered_map<void*, bool> freed;
 
 struct snd_seq_port_info {
 	struct snd_seq_addr addr;
@@ -110,13 +112,18 @@ void snd_seq_system_broadcast(int client, int port, int type)
 int snd_seq_set_port_info(struct snd_seq_client_port * port,
 			  struct snd_seq_port_info * info)
 {
+	if(freed.find(port) != freed.end())
+	{
+		auto test_engine = GetTestEngine();
+		test_engine->notify_assertion_failure("use after free");
+		return -1;
+	}
 	port->type = info->type;
 	printf("write, port = %p\n", port);
 
 	return 0;
 }
 
-std::unordered_map<void*, bool> freed;
 struct snd_seq_client_port *snd_seq_create_port(struct snd_seq_client *client,
 						int port)
 {
@@ -133,8 +140,8 @@ struct snd_seq_client_port *snd_seq_create_port(struct snd_seq_client *client,
 
 	num = port >= 0 ? port : 0;
 
-    client->ports_mutex->acquire();
-    client->ports_lock->acquire();
+	client->ports_mutex->acquire();
+	client->ports_lock->acquire();
 	list_for_each_entry(p, &client->ports_list_head, list) {
 
 		if (p->addr.port > num)
@@ -145,14 +152,15 @@ struct snd_seq_client_port *snd_seq_create_port(struct snd_seq_client *client,
 	list_add_tail(&new_port->list, &p->list);
 	client->num_ports++;
 	new_port->addr.port = num;
-    client->ports_lock->release();
-    client->ports_mutex->release();
+	client->ports_lock->release();
+	client->ports_mutex->release();
 
 	return new_port;
 }
 
 static int snd_seq_ioctl_create_port(struct snd_seq_client *client, void *arg)
 {
+	auto test_engine = GetTestEngine();
 	struct snd_seq_port_info *info = (snd_seq_port_info*)arg;
 	struct snd_seq_client_port *port;
 
@@ -170,7 +178,7 @@ static int snd_seq_ioctl_create_port(struct snd_seq_client *client, void *arg)
 	{
 		auto test_engine = GetTestEngine();
 		test_engine->notify_assertion_failure("use after free");
-		return 0;
+		return -1;
 	}
 	snd_seq_system_client_ev_port_start(port->addr.client, port->addr.port);
 
@@ -207,8 +215,9 @@ static int port_delete(struct snd_seq_client *client,
 int snd_seq_delete_port(struct snd_seq_client *client, int port)
 {
 	struct snd_seq_client_port *found = NULL, *p;
-    client->ports_mutex->acquire();
-    client->ports_lock->acquire();
+
+	client->ports_mutex->acquire();
+	client->ports_lock->acquire();
 	list_for_each_entry(p, &client->ports_list_head, list) {
 	    printf("found  %d,port =  %d\n", p->addr.port, port);
 		if (p->addr.port == port) {
@@ -219,8 +228,8 @@ int snd_seq_delete_port(struct snd_seq_client *client, int port)
 			break;
 		}
 	}
-    client->ports_lock->release();
-    client->ports_mutex->release();
+	client->ports_lock->release();
+	client->ports_mutex->release();
 	if (found)
 		return port_delete(client, found);
 	else
@@ -245,11 +254,19 @@ void* thread_two(void* args){
 
 void run_iteration()
 {
+#ifdef TEST_TIME
+	static double run_time_begin;
+	static double run_time_end;
+	static double run_time_total;
+	run_time_begin = clock();
+#endif
+
 #ifdef MUTEX_FOR_CORRECT_EXE_SEQUENCE
 	lock_for_correct_exe = new Resources::SynchronizedResource();
 	lock_for_correct_exe->acquire();
 #endif
 
+	freed.clear();
 	struct snd_seq_client clt_test;
 	struct snd_seq_client_port port_test;
 	struct snd_seq_port_info info_test;
@@ -258,14 +275,14 @@ void run_iteration()
 	port_test.addr.port = 0;
 	port_test.list.next = &(clt_test.ports_list_head);
 	port_test.list.prev = &(clt_test.ports_list_head);
-    port_test.use_lock->acquire();
+    port_test.use_lock = new Resources::SynchronizedResource();
 
 	clt_test.number = 1;
 	clt_test.num_ports = 1;
 	clt_test.ports_list_head.next = &(port_test.list);
 	clt_test.ports_list_head.prev = &(port_test.list);
-    clt_test.ports_mutex = new Resources::SynchronizedResource();
-    clt_test.ports_lock = new Resources::SynchronizedResource();
+	clt_test.ports_mutex = new Resources::SynchronizedResource();
+ 	clt_test.ports_lock = new Resources::SynchronizedResource();
 
 	info_test.addr.client = 1;
 	info_test.addr.port = 1;
@@ -275,19 +292,24 @@ void run_iteration()
 	struct thread_args args;
 	args.clt = &clt_test;
 	args.info = &info_test;
-    ControlledTask<void> t1([&args] { thread_one(&args); });
-    ControlledTask<void> t2([&clt_test] { thread_two(&clt_test); });
+	ControlledTask<void> t1([&args] { thread_one(&args); });
+	ControlledTask<void> t2([&clt_test] { thread_two(&clt_test); });
     t1.start();
-    t2.start();
-    t1.wait();
-    t2.wait();
+	t2.start();
+	t1.wait();
+	t2.wait();
 
     printf("\nprogram-successful-exit\n");
+#ifdef TEST_TIME
+    run_time_end = clock();
+    run_time_total = run_time_end - run_time_begin;
+    printf("test-the-total-time: %.3lf\n", (double)(run_time_total/CLOCKS_PER_SEC)*1000);
+#endif
 }
 
-int main(){
-
-    std::cout << "[test] started." << std::endl;
+int main()
+{
+	std::cout << "[test] started." << std::endl;
     auto start_time = std::chrono::steady_clock::now();
 
     try
@@ -295,7 +317,7 @@ int main(){
         auto settings = CreateDefaultSettings();
         settings.with_resource_race_checking_enabled(true);
         settings.with_prioritization_strategy();
-        SystematicTestEngineContext context(settings, 100);
+        SystematicTestEngineContext context(settings, 10000);
         while (auto iteration = context.next_iteration())
         {
             try

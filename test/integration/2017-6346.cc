@@ -7,14 +7,10 @@
 #include <atomic>
 #include <iostream>
 #include <time.h>
+
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
-//#define MUTEX_FOR_CORRECT_EXE_SEQUENCE
-#ifdef MUTEX_FOR_CORRECT_EXE_SEQUENCE
-Resources::SynchronizedResource* lock_for_correct_exe;
-#endif
-
 // #define TEST_TIME
 
 #define PACKET_FANOUT_ROLLOVER		3
@@ -84,7 +80,7 @@ void atomic_long_set(atomic_long_t* n, int v){
     n->counter = v;
 }
 
-std::unordered_map<struct packet_rollover*, bool> freed;
+std::unordered_map<void*, bool> freed;
 static int fanout_add(struct sock *sk, u16 type_flags, int thread_id)
 {
     auto test_engine = GetTestEngine();
@@ -95,30 +91,19 @@ static int fanout_add(struct sock *sk, u16 type_flags, int thread_id)
     if (type == PACKET_FANOUT_ROLLOVER ||
         (type_flags & PACKET_FANOUT_FLAG_ROLLOVER)) {
 
-        std::cout << po->rollover << std::endl;
-        /*
-        if(freed.find(po->rollover) != freed.end())
-        {
-            auto test_engine = GetTestEngine();
-            test_engine->notify_assertion_failure("double free");
-            return err;
-        }
-        */
         po->rollover = (packet_rollover*)kzalloc(sizeof(*po->rollover));
+
+        /* uncomment to catch use after free bugs as well */
+        test_engine->schedule_next_operation(); 
 
         if (!po->rollover)
             return -ENOMEM;
-
         printf("thread %d kzalloc, po->rollover = %p\n", thread_id, po->rollover);
-
-        /*
-        if(freed.find(po->rollover) != freed.end())
+        if(freed.find((void*)po->rollover) != freed.end())
         {
-            auto test_engine = GetTestEngine();
-            test_engine->notify_assertion_failure("double free");
-            return err;
+            test_engine->notify_assertion_failure("use after free");
+            return -1;
         }
-        */
         atomic_long_set(&po->rollover->num, 0);
         printf("thread %d change.\n", thread_id);
 
@@ -129,45 +114,27 @@ static int fanout_add(struct sock *sk, u16 type_flags, int thread_id)
     fanout_mutex->release();
 
     if (err) {
-        /*
-        if(freed.find(po->rollover) != freed.end())
+        if(freed.find((void*)po->rollover) != freed.end())
         {
-            auto test_engine = GetTestEngine();
             test_engine->notify_assertion_failure("double free");
-            return err;
+            return -1;
         }
-        */
-        //test_engine->schedule_next_operation();
         kfree(po->rollover);
-        //freed[po->rollover] = true;
-        //std::cout << po->rollover << std::endl;
-        printf("thread %d free.\n", thread_id);
+        freed[(void*)po->rollover] = true;
 
-        //po->rollover = NULL;
+        // po->rollover = NULL;
     }
-
-#ifdef MUTEX_FOR_CORRECT_EXE_SEQUENCE
-    if(thread_id == 2)
-        lock_for_correct_exe->release();
-#endif
 
     return err;
 }
 
-void /*void**/ thread_func(void* args){
+void* thread_func(void* args){
     struct sock *sk = ((pthread_args*)args)->sk;
     u16 type_flags = ((pthread_args*)args)->type_flags;
     int id = ((pthread_args*)args)->thread_id;
 
-    if(id == 1)
-#ifdef MUTEX_FOR_CORRECT_EXE_SEQUENCE
-        lock_for_correct_exe->acquire();
-#else
-        /*sleep(1)*/;
-#endif
     fanout_add(sk, type_flags, id);
 }
-
 
 void run_iteration()
 {
@@ -178,43 +145,37 @@ void run_iteration()
     run_time_begin = clock();
 #endif
 
-#ifdef MUTEX_FOR_CORRECT_EXE_SEQUENCE
-    lock_for_correct_exe = new Resources::SynchronizedResource();
-    lock_for_correct_exe->acquire();
-#endif
-
     struct packet_sock pktsk;
     struct sock sk;
     pktsk.sk = sk;
 
-    struct pthread_args args_one;
-    struct pthread_args args_two;
-    args_one.sk = &pktsk.sk;
+    freed.clear();
+    struct pthread_args args_one, args_two;
+    args_one.sk = &sk;
     args_one.type_flags = 3;
     args_one.thread_id = 1;
 
-    args_two.sk = &pktsk.sk;
+    args_two.sk = &sk;
     args_two.type_flags = 3;
     args_two.thread_id = 2;
 
-
-    freed.clear();
     fanout_mutex = new Resources::SynchronizedResource();
 
     ControlledTask<void> t1([&args_one] { thread_func(&args_one); });
     ControlledTask<void> t2([&args_two] { thread_func(&args_two); });
-
+    
     t1.start();
     t2.start();
     t1.wait();
     t2.wait();
 
+    delete fanout_mutex;
     printf("\nprogram-successful-exit\n");
 #ifdef TEST_TIME
     run_time_end = clock();
     run_time_total = run_time_end - run_time_begin;
     printf("test-the-total-time: %.3lf\n", (double)(run_time_total/CLOCKS_PER_SEC)*1000);
-#endif
+#endif    
 }
 
 int main()
@@ -227,18 +188,10 @@ int main()
         auto settings = CreateDefaultSettings();
         settings.with_resource_race_checking_enabled(true);
         settings.with_prioritization_strategy();
-        SystematicTestEngineContext context(settings, 100);
+        SystematicTestEngineContext context(settings, 10000);
         while (auto iteration = context.next_iteration())
         {
-            try
-            {
-                run_iteration();
-            }
-            catch(const std::exception& e)
-            {
-                std::cerr << e.what() << '\n';
-            }
-            
+            run_iteration();
         }
 
         auto report = context.report();
@@ -255,6 +208,5 @@ int main()
     }
   
     std::cout << "[test] done in " << total_time(start_time) << "ms." << std::endl;
-    return 0;
     return 0;
 }

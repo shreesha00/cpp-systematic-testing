@@ -162,8 +162,8 @@ int main()
     {
         auto settings = CreateDefaultSettings();
         //settings.with_resource_race_checking_enabled(true);
-        settings.with_prioritization_strategy();
-        SystematicTestEngineContext context(settings, 1000);
+        settings.with_random_strategy();
+        SystematicTestEngineContext context(settings, 10000);
         while (auto iteration = context.next_iteration())
         {
             run_iteration();

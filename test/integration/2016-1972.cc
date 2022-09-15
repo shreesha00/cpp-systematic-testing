@@ -40,20 +40,10 @@ void Exit(Resources::SynchronizedResource* l)
     l->release();
 }
 
-CRITICAL_SECTION* lock = NULL; 
+
+CRITICAL_SECTION* lock;
 long waiters;
 int done;
-
-void init_vars()
-{
-    waiters = 0;
-    done = 0;
-    if(lock != NULL)
-    {
-        delete lock;
-    }
-    lock = new CRITICAL_SECTION();
-}
 
 std::string err_path;
 void/*void**/ once(void* arg, int thread_num)
@@ -64,7 +54,7 @@ void/*void**/ once(void* arg, int thread_num)
     static long waiters = 0;
     static int done = 0;
     */
-
+    
     if(done)
         return;
 
@@ -103,31 +93,28 @@ void/*void**/ once(void* arg, int thread_num)
 
 void run_iteration()
 {
-    ControlledTask<void>* t[thread_size];
-
     void* arg = NULL;
-    init_vars();
-    for(int i = 0; i < thread_size;)
+
+    waiters = 0;
+    done = 0;
+    if(!lock)
     {
-        int p = i + 1;
-        t[i] = new ControlledTask<void>([&arg, i] { once(arg, i); });
-        t[i+1] = new ControlledTask<void>([&arg, p] { once(arg, p); });
-        t[i]->start();
-        t[i+1]->start();
-        i += 2;
+        lock = new CRITICAL_SECTION();
     }
+
+    ControlledTask<void> t1([&arg] { once(arg, 0); });
+    ControlledTask<void> t2([&arg] { once(arg, 1); });
+
+    t1.start();
+    t2.start();
 
     /*
     struct timeval start, end;
     gettimeofday( &start, NULL );
     */
 
-    for(int i = 0; i < thread_size;)
-    {
-        t[i]->wait();
-        t[i+1]->wait();
-        i += 2;
-    }
+    t1.wait();
+    t2.wait();
 
     /*
     gettimeofday( &end, NULL );
@@ -189,7 +176,7 @@ int main()
         auto settings = CreateDefaultSettings();
         //settings.with_resource_race_checking_enabled(true);
         settings.with_prioritization_strategy();
-        SystematicTestEngineContext context(settings, 1000);
+        SystematicTestEngineContext context(settings, 10000);
         while (auto iteration = context.next_iteration())
         {
             run_iteration();

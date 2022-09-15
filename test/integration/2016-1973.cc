@@ -12,6 +12,7 @@
 // #define SLEEP_FOR_RACE
 // #define TEST_TIME
 
+std::unordered_map<void*, bool> freed;
 namespace webrtc {
 
 enum CountOperation {
@@ -47,6 +48,14 @@ static T* GetStaticInstance(CountOperation count_operation, int thread_num) {
     auto test_engine = GetTestEngine();
 	static volatile std::atomic_long instance_count(0);
 	static T* volatile instance = NULL;
+
+	/* reset if thread_num = 0 */
+	if (thread_num == 0)
+	{
+		instance = NULL;
+		instance_count.store(0);
+		return NULL;
+	}
     
 	CreateOperation state = kInstanceExists;
 	if (count_operation == kAddRefNoCreate && instance_count == 0) {
@@ -85,10 +94,7 @@ static T* GetStaticInstance(CountOperation count_operation, int thread_num) {
   			printf("thread %d: set state = kDestroy\n", thread_num);
     	}
   	}
-    if (count_operation  == kAddRef)
-    {
-        test_engine->schedule_next_operation();
-    }
+    test_engine->schedule_next_operation();
   	if (state == kCreate) {
   		printf("thread %d: kCreate\n", thread_num);
     	T* new_instance = T::CreateInstance();
@@ -118,6 +124,7 @@ static T* GetStaticInstance(CountOperation count_operation, int thread_num) {
     	if (old_value) {
     		printf("thread %d: old_value = %p\n", thread_num, old_value);
       		delete static_cast<T*>(old_value);
+			freed[(void*)old_value] = true;
     		printf("thread %d: delete old_value\n", thread_num);
     	}
     	return NULL;
@@ -182,6 +189,11 @@ void thread_two(void* args){
 #ifdef SLEEP_FOR_RACE
 	sleep(6);
 #endif
+	if(freed.find(ssrcdb) != freed.end())
+	{
+		test_engine->notify_assertion_failure("use after free");
+		return;
+	}
 	accessMap(ssrcdb);
 	printf("thread 2: use ssrcdb = %p\n", ssrcdb);
 }
@@ -197,6 +209,8 @@ void run_iteration()
 #endif
 
     void* args = NULL;
+	freed.clear();
+	webrtc::SSRCDatabase::GetSSRCDatabase(0);
     ControlledTask<void> t2([&args] { thread_two(args); });
     ControlledTask<void> t1([&args] { thread_one(args); });
 
@@ -222,7 +236,6 @@ int main()
     try
     {
         auto settings = CreateDefaultSettings();
-        //settings.with_resource_race_checking_enabled(true);
         settings.with_prioritization_strategy();
         SystematicTestEngineContext context(settings, 10000);
         while (auto iteration = context.next_iteration())

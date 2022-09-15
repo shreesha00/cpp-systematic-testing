@@ -88,8 +88,8 @@ int main()
     try
     {
         auto settings = CreateDefaultSettings();
-        settings.with_prioritization_strategy();
-        SystematicTestEngineContext context(settings, 1000);
+        settings.with_random_strategy();
+        SystematicTestEngineContext context(settings, 10000);
         while (auto iteration = context.next_iteration())
         {
             try

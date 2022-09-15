@@ -11,7 +11,7 @@ mkdir ./build
 cd ./build
 
 # Build the project
-cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Release ..
+cmake -G "Ninja" -DCMAKE_BUILD_TYPE=Debug ..
 retVal=$?
 if [ $retVal -eq 0 ]
 then

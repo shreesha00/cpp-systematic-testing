@@ -7,6 +7,7 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
+#include "racy_variable.h"
 // #define TEST_TIME
 
 typedef struct {
@@ -21,7 +22,7 @@ struct io_context {
 };
 
 struct task_struct {
-	struct io_context *io_context;
+	RacyVariable<struct io_context *> io_context;
 	spinlock_t alloc_lock;
 };
 
@@ -67,18 +68,17 @@ static int get_task_ioprio(struct task_struct *p)
 		goto out;
 	ret = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_NONE, IOPRIO_NORM);
 	//std::cout << p->io_context << std::endl;
-	if (p->io_context)
+	if (p->io_context.read())
 	{
-		auto test_engine = GetTestEngine();
-		test_engine->schedule_next_operation();
-
 		//std::cout << p->io_context << std::endl;
-		if(p->io_context == NULL)
+		if(p->io_context.read_wo_interleaving() == NULL)
 		{
+			auto test_engine = GetTestEngine();
 			test_engine->notify_assertion_failure("NULL ptr dereference");
 			return ret;
 		}
-		ret = p->io_context->ioprio;
+	
+		ret = (p->io_context.read())->ioprio;
 		puts("after use");
 	}
 out:
@@ -90,8 +90,8 @@ void exit_io_context(struct task_struct *task)
 	struct io_context *ioc;
 
 	task_lock(task);
-	ioc = task->io_context;
-	task->io_context = NULL;
+	ioc = task->io_context.read();
+	task->io_context.write(NULL);
 	puts("NULL");
 	task_unlock(task);
 
@@ -119,7 +119,7 @@ void run_iteration()
 
     ioc_test.ioprio = 1;
 	task_test.alloc_lock = new Resources::SynchronizedResource();
-	task_test.io_context = &ioc_test;
+	task_test.io_context.write_wo_interleaving(&ioc_test);
 
     ControlledTask<void> t1([&task_test] { thread_one(&task_test); });
     ControlledTask<void> t2([&task_test] { thread_two(&task_test); });
@@ -170,7 +170,8 @@ int main(){
         auto settings = CreateDefaultSettings();
         //settings.with_resource_race_checking_enabled(true);
         settings.with_random_strategy();
-        SystematicTestEngineContext context(settings, 10000);
+		settings.with_random_generator_seed(time(NULL));
+        SystematicTestEngineContext context(settings, 1000);
         while (auto iteration = context.next_iteration())
         {
             try

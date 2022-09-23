@@ -22,7 +22,7 @@ struct io_context {
 };
 
 struct task_struct {
-	RacyVariable<struct io_context *> io_context;
+	RacyPointer<struct io_context> io_context;
 	spinlock_t alloc_lock;
 };
 
@@ -67,18 +67,9 @@ static int get_task_ioprio(struct task_struct *p)
 	if (ret)
 		goto out;
 	ret = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_NONE, IOPRIO_NORM);
-	//std::cout << p->io_context << std::endl;
 	if (p->io_context)
 	{
-		//std::cout << p->io_context << std::endl;
-		if(p->io_context.read_wo_interleaving() == NULL)
-		{
-			auto test_engine = GetTestEngine();
-			test_engine->notify_assertion_failure("NULL ptr dereference");
-			return ret;
-		}
-	
-		ret = (p->io_context.read())->ioprio;
+		ret = p->io_context->ioprio;
 		puts("after use");
 	}
 out:
@@ -121,8 +112,8 @@ void run_iteration()
 	task_test.alloc_lock = new Resources::SynchronizedResource();
 	task_test.io_context.write_wo_interleaving(&ioc_test);
 
-    ControlledTask<void> t1([&task_test] { thread_one(&task_test); });
-    ControlledTask<void> t2([&task_test] { thread_two(&task_test); });
+    ControlledTask<void> t1([&task_test] { try { thread_one(&task_test); } catch(const std::exception& e) { std::cerr << e.what() << std::endl; } });
+    ControlledTask<void> t2([&task_test] { try { thread_two(&task_test); } catch(const std::exception& e) { std::cerr << e.what() << std::endl; } });
 
 	t1.start();
     t2.start();
@@ -180,7 +171,7 @@ int main(){
             }
             catch(const std::exception& e)
             {
-                std::cerr << e.what() << '\n';
+                std::cerr << e.what() << std::endl;
             }
             
         }

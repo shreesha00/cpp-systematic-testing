@@ -8,6 +8,7 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
+#include "racy_variable.h"
 // #define TEST_TIME
 
 using namespace std;
@@ -28,30 +29,22 @@ struct pipe_inode_info
 struct INODE
 {
     Resources::SynchronizedResource* i_mutex;
-    struct pipe_inode_info *i_pipe;
+    RacyPointer<struct pipe_inode_info> i_pipe;
 
     INODE()
     {
         i_mutex = new Resources::SynchronizedResource();
-        i_pipe = new pipe_inode_info();
+        i_pipe.write_wo_interleaving(new pipe_inode_info());
     }
 };
 
 
 struct INODE* inode = new INODE();
-auto i_pipe = inode->i_pipe;
+struct pipe_inode_info* i_pipe = inode->i_pipe.read_wo_interleaving();
 
 void/*static void**/ pipe_write_open(void* arg)
 {
     inode->i_mutex->acquire();
-    //assert(inode->i_pipe != nullptr, "NULL pointer dereference");
-    if(inode->i_pipe == nullptr)
-    {
-        auto test_engine = GetTestEngine();
-        test_engine->notify_assertion_failure("NULL ptr dereference");
-        inode->i_mutex->release();
-        return;
-    }
     inode->i_pipe->readers++;
     cout << "threadA: " << std::hex << inode->i_pipe << endl;
 
@@ -69,13 +62,13 @@ void/*static void**/ involve(void* arg)
 void run_iteration()
 {
     void* args(NULL);
-    ControlledTask<void> t1([&args] { pipe_write_open(args); });
-    ControlledTask<void> t2([&args] { involve(args); });
+    ControlledTask<void> t1([&args] { try { pipe_write_open(args); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
+    ControlledTask<void> t2([&args] { try { involve(args); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
     t1.start();
     t2.start();
     t1.wait();
     t2.wait();
-    inode->i_pipe = i_pipe;
+    inode->i_pipe.write_wo_interleaving(i_pipe);
     printf("\nprogram-successful-exit\n");
 }
 

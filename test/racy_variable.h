@@ -26,25 +26,35 @@ public:
 
     }
 
-    VariableType read()
+    VariableType read() const
     {
         auto read_val = m_var;
         m_test_engine->schedule_next_operation();
         return read_val;
     }
 
-    VariableType read_wo_interleaving()
+    VariableType read_wo_interleaving() const
     {
         return m_var;
     }
 
-    void write(VariableType write_val)
+    operator VariableType() const
+    {
+        return read();
+    } 
+
+    void operator = (const VariableType& write_val)
+    {
+        write(write_val);
+    }
+
+    void write(const VariableType& write_val)
     {
         m_var = write_val;
         m_test_engine->schedule_next_operation();
     }
 
-    void write_wo_interleaving(VariableType write_val)
+    void write_wo_interleaving(const VariableType& write_val)
     {
         m_var = write_val;
     }

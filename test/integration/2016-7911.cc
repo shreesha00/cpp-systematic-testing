@@ -68,7 +68,7 @@ static int get_task_ioprio(struct task_struct *p)
 		goto out;
 	ret = IOPRIO_PRIO_VALUE(IOPRIO_CLASS_NONE, IOPRIO_NORM);
 	//std::cout << p->io_context << std::endl;
-	if (p->io_context.read())
+	if (p->io_context)
 	{
 		//std::cout << p->io_context << std::endl;
 		if(p->io_context.read_wo_interleaving() == NULL)
@@ -90,8 +90,8 @@ void exit_io_context(struct task_struct *task)
 	struct io_context *ioc;
 
 	task_lock(task);
-	ioc = task->io_context.read();
-	task->io_context.write(NULL);
+	ioc = task->io_context;
+	task->io_context = NULL;
 	puts("NULL");
 	task_unlock(task);
 

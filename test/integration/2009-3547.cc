@@ -81,6 +81,7 @@ int main()
     try
     {
         auto settings = CreateDefaultSettings();
+        settings.with_random_generator_seed(time(NULL));
         settings.with_random_strategy();
         SystematicTestEngineContext context(settings, 10000);
         while (auto iteration = context.next_iteration())

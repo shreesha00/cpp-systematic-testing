@@ -31,7 +31,6 @@ class RacyVariable
 {
 public: 
     explicit RacyVariable() :
-        m_test_engine(GetTestEngine()),
         m_var()
     {
 
@@ -39,7 +38,7 @@ public:
 
     VariableType read() const
     {
-        m_test_engine->schedule_next_operation();
+        (GetTestEngine())->schedule_next_operation();
         auto read_val = m_var;
         return m_var;
     }
@@ -61,7 +60,7 @@ public:
 
     void write(const VariableType& write_val)
     {
-        m_test_engine->schedule_next_operation();
+        (GetTestEngine())->schedule_next_operation();
         m_var = write_val;
     }
 
@@ -71,7 +70,6 @@ public:
     }
 
 private:
-    TestEngine* m_test_engine;
     VariableType m_var;
 };
 
@@ -80,7 +78,6 @@ class RacyPointer
 {
 public: 
     explicit RacyPointer() :
-        m_test_engine(GetTestEngine()),
         m_var()
     {
 
@@ -88,7 +85,7 @@ public:
 
     VariableType* read() const
     {
-        m_test_engine->schedule_next_operation();
+        (GetTestEngine())->schedule_next_operation();
         return m_var;
     }
 
@@ -109,21 +106,21 @@ public:
     
     VariableType* operator -> ()
     {
-        m_test_engine->schedule_next_operation();
+        (GetTestEngine())->schedule_next_operation();
         throw_if_null();
         return m_var;
     }
 
     VariableType& operator * ()
     {
-        m_test_engine->schedule_next_operation();
+        (GetTestEngine())->schedule_next_operation();
         throw_if_null();
         return *m_var;
     }
 
     void write(VariableType* const& write_val)
     {
-        m_test_engine->schedule_next_operation();
+        (GetTestEngine())->schedule_next_operation();
         m_var = write_val;
     }
 
@@ -133,13 +130,12 @@ public:
     }
 
 private:
-    TestEngine* m_test_engine;
     VariableType* m_var;
     void throw_if_null()
     {
         if(!m_var)
         {
-            m_test_engine->notify_assertion_failure("NULL pointer dereference");
+            (GetTestEngine())->notify_assertion_failure("NULL pointer dereference");
             throw NullDereferenceException();
         }
     }

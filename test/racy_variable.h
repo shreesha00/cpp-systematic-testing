@@ -104,14 +104,14 @@ public:
         write(write_val);
     }
     
-    VariableType* operator -> ()
+    VariableType* operator -> () const
     {
         (GetTestEngine())->schedule_next_operation();
         throw_if_null();
         return m_var;
     }
 
-    VariableType& operator * ()
+    VariableType& operator * () const
     {
         (GetTestEngine())->schedule_next_operation();
         throw_if_null();
@@ -131,7 +131,7 @@ public:
 
 private:
     VariableType* m_var;
-    void throw_if_null()
+    void throw_if_null() const
     {
         if(!m_var)
         {

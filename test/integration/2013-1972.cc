@@ -6,6 +6,7 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
+#include "racy_variable.h"
 // #define TEST_TIME
 
 typedef __signed__ int __s32;
@@ -45,7 +46,7 @@ struct user_struct {
 };
 
 struct cred {
-	struct user_struct *user;
+	RacyPointer<struct user_struct> user;
 };
 
 struct pthread_args{
@@ -105,7 +106,7 @@ void key_put(struct key *key){}
 int install_user_keyrings(int thread_num)
 {
     auto test_engine = GetTestEngine();
-	struct user_struct *user;
+	RacyPointer<struct user_struct> user;
 	const struct cred *cred;
 	struct key *uid_keyring, *session_keyring;
 	key_perm_t user_keyring_perm;
@@ -132,7 +133,7 @@ int install_user_keyrings(int thread_num)
 		printf("thread %d: malloc\n", thread_num);
 
 		user->uid_keyring = uid_keyring;
-        test_engine->schedule_next_operation();
+        //test_engine->schedule_next_operation();
 		user->session_keyring = session_keyring;
 	}
 
@@ -177,7 +178,7 @@ try_again:
 		}
 
 		key = cred->user->session_keyring;
-        if(key == NULL)
+		if(key == NULL)
         {
             test_engine->notify_assertion_failure("NULL ptr dereference");
             goto error;
@@ -284,8 +285,8 @@ void run_iteration()
     user_test.uid_keyring = NULL;
     user_test.session_keyring = NULL;
     struct pthread_args* arg_two = NULL;
-    ControlledTask<void> t1([&arg_one] { thread_one(&arg_one); });
-    ControlledTask<void> t2([&arg_two] { thread_two(arg_two); });
+    ControlledTask<void> t1([&arg_one] { try { thread_one(&arg_one); } catch(std::exception& e) { std::cout << e.what() << std::endl; }});
+    ControlledTask<void> t2([&arg_two] { try { thread_two(arg_two); } catch(std::exception& e) { std::cout << e.what() << std::endl; }});
     t1.start();
     t2.start();
 

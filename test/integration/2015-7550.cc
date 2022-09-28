@@ -9,6 +9,7 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
+#include "racy_variable.h"
 
 // #define TEST_TIME
 
@@ -33,7 +34,7 @@ struct key
     struct assoc_array *keys;
 };
 
-int key_validate(const struct key *key)
+int key_validate(const RacyPointer<struct key> key)
 {
     unsigned long flags = key->flags;
     printf("flags = %ld\n", flags);
@@ -48,7 +49,7 @@ int key_validate(const struct key *key)
     return 0;
 }
 
-static long keyring_read(const struct key* keyring)
+static long keyring_read(const RacyPointer<struct key> keyring)
 {
     unsigned long nr_keys;
     nr_keys = keyring->keys->nr_leaves_on_tree;
@@ -56,7 +57,7 @@ static long keyring_read(const struct key* keyring)
     return nr_keys;
 }
 
-long keyctl_read_key(struct key *key)
+long keyctl_read_key(RacyPointer<struct key> key)
 {
     long ret = key_validate(key);
 
@@ -77,12 +78,12 @@ long keyctl_read_key(struct key *key)
 }
 
 
-void keyring_revoke(struct key* keyring)
+void keyring_revoke(RacyPointer<struct key> keyring)
 {
     keyring->keys = NULL;
 }
 
-void key_revoke(struct key *key)
+void key_revoke(RacyPointer<struct key> key)
 {
     key->sem->acquire();
     key->flags = KEY_FLAG_REVOKED;
@@ -94,14 +95,16 @@ void key_revoke(struct key *key)
 void thread1(void* arg)
 {
     puts("thread 1");
-    struct key *key = (struct key*)arg;
+    RacyPointer<struct key> key;
+    key = (struct key*)arg;
     key_revoke(key);
 }
 
 void thread2(void* arg)
 {
     puts("thread 2");
-    struct key *key = (struct key*)arg;
+    RacyPointer<struct key> key;
+    key = (struct key*)arg;
     keyctl_read_key(key);
 }
 
@@ -126,8 +129,8 @@ void run_iteration()
     pthread_join(t2, NULL);
     pthread_join(t1, NULL);
     */
-    ControlledTask<void> t1([&key] { thread1(key); });
-    ControlledTask<void> t2([&key] { thread2(key); });
+    ControlledTask<void> t1([&key] { try { thread1(key); } catch(std::exception& e) { std::cout << e.what() << std::endl; } });
+    ControlledTask<void> t2([&key] { try { thread2(key); } catch(std::exception& e) { std::cout << e.what() << std::endl; } });
 
     t2.start();
     t1.start();
@@ -179,7 +182,7 @@ int main()
     {
         auto settings = CreateDefaultSettings();
         settings.with_resource_race_checking_enabled(true);
-        settings.with_random_strategy();
+        settings.with_prioritization_strategy();
         SystematicTestEngineContext context(settings, 10000);
         while (auto iteration = context.next_iteration())
         {

@@ -9,6 +9,7 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
+#include "racy_variable.h"
 // #define TEST_TIME
 
 struct CRITICAL_SECTION{
@@ -20,12 +21,12 @@ struct CRITICAL_SECTION{
     }
 };
 
-void Inc(long *num)
+void Inc(long* num)
 {
     ++(*num);
 }
 
-long Dec(long *num)
+long Dec(long* num)
 {
     return --(*num);
 }
@@ -43,7 +44,7 @@ void Exit(Resources::SynchronizedResource* l)
 
 CRITICAL_SECTION* lock;
 long waiters;
-int done;
+RacyVariable<int> done;
 
 std::string err_path;
 void/*void**/ once(void* arg, int thread_num)
@@ -58,13 +59,11 @@ void/*void**/ once(void* arg, int thread_num)
     if(done)
         return;
 
-    auto test_engine = GetTestEngine();
-    test_engine->schedule_next_operation();
     Inc(&waiters);
 
     if(!lock)
     {
-        test_engine->notify_assertion_failure("NULL ptr dereference");
+        (GetTestEngine())->notify_assertion_failure("NULL ptr dereference");
         //Dec(&waiters);
         return;
     }
@@ -96,7 +95,7 @@ void run_iteration()
     void* arg = NULL;
 
     waiters = 0;
-    done = 0;
+    done.write_wo_interleaving(0);
     if(!lock)
     {
         lock = new CRITICAL_SECTION();

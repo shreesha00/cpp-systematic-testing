@@ -35,6 +35,13 @@ namespace SystematicTesting::Resources
             AcquiredShared
         };
 
+        enum class RaceState
+        {
+            Acquiring = 0, 
+            Releasing, 
+            DefaultState
+        };
+
         SynchronizedResource(bool is_reentrant = false) noexcept :
             m_id(assign_resource_id()),
             m_is_reentrant(is_reentrant),
@@ -82,7 +89,7 @@ namespace SystematicTesting::Resources
                 if (test_engine->settings().is_resource_race_checking_enabled())
                 {
                     // Introduce an interleaving before the resource is acquired.
-                    test_engine->schedule_next_operation();
+                    test_engine->schedule_next_operation(m_id, RaceState::Acquiring);
                 }
 
                 // Notify the engine that the current operation has acquired the resource.
@@ -105,7 +112,7 @@ namespace SystematicTesting::Resources
                         if (test_engine->settings().is_resource_race_checking_enabled())
                         {
                             // Introduce an interleaving after the resource is released.
-                            test_engine->schedule_next_operation();
+                            test_engine->schedule_next_operation(m_id, RaceState::Releasing);
                         }
                     }
                 }

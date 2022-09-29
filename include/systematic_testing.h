@@ -1683,6 +1683,48 @@ namespace SystematicTesting
             }
         };
 
+        // A partial order aware scheduling strategy
+        class POSStrategy : public Strategy
+        {
+            // The strategy is based on the POS algorithm described in the following paper
+            // https://www.cs.columbia.edu/~rgu/publications/cav18-yuan.pdf
+        public: 
+            POSStrategy(const Settings& settings, const Logger& logger) noexcept :
+            Strategy(settings, logger)  
+            {
+            }
+            
+            POSStrategy(POSStrategy&& strategy) = delete;
+            POSStrategy(POSStrategy const&) = delete;
+
+            POSStrategy& operator=(POSStrategy&& strategy) = delete;
+            POSStrategy& operator=(POSStrategy const&) = delete;
+
+            // Prepares for the next iteration 
+            void prepare_next_iteration(size_t iteration) override
+            {
+                if(iteration > 1)
+                {
+                    m_iteration_seed++;
+                }
+
+                m_random_generator.seed(m_iteration_seed);
+                m_execution_path.reset();
+            }
+
+            // Returns the next boolean choice.
+            bool next_boolean() override
+            {
+                return record_boolean_choice(m_random_generator.next_boolean());
+            }
+
+            // Returns the next integer choice between 0 and the specified inclusive max value.
+            size_t next_integer(size_t max_value) override
+            {
+                return record_integer_choice(m_random_generator.next_integer(max_value));
+            }
+        };
+
         // A replay strategy that can reproduce an execution from its sequence of choices.
         class ReplayStrategy : public Strategy
         {
@@ -1955,10 +1997,18 @@ namespace SystematicTesting
 
         // Schedules the next operation, which can include the currently executing operation.
         // Only operations that are not blocked nor completed can be scheduled.
-        void schedule_next_operation()
+        void schedule_next_operation(std::optional<size_t> resource_id = std::nullopt, Resources::SynchronizedResource::RaceState state = Resources::SynchronizedResource::RaceState::DefaultState)
         {
             std::unique_lock<std::mutex> lock(m_lock);
-            schedule_next_operation(lock);
+            if (resource_id != std::nullopt)
+            {
+                schedule_next_operation(lock, resource_id, state);
+            }
+            else
+            {
+                schedule_next_operation(lock);
+            }
+
         }
 
         // Completes the currently executing operation and schedules the next operation.
@@ -2465,11 +2515,18 @@ namespace SystematicTesting
 
         // Schedules the next operation, which can include the currently executing operation.
         // Only operations that are not blocked nor completed can be scheduled.
-        void schedule_next_operation(std::unique_lock<std::mutex>& lock)
+        void schedule_next_operation(std::unique_lock<std::mutex>& lock, std::optional<size_t> resource_id = std::nullopt, Resources::SynchronizedResource::RaceState state = Resources::SynchronizedResource::RaceState::DefaultState)
         {
             if (auto current_op = get_executing_operation_if(m_status == Status::Attached))
             {
-                schedule_next_operation(current_op, lock);
+                if (resource_id != std::nullopt)
+                {
+                    schedule_next_operation(current_op, lock, resource_id, state);
+                }
+                else 
+                {
+                    schedule_next_operation(current_op, lock);
+                }
             }
             else
             {
@@ -2480,7 +2537,7 @@ namespace SystematicTesting
 
         // Schedules the next operation, which can include the currently executing operation.
         // Only operations that are not blocked nor completed can be scheduled.
-        void schedule_next_operation(Runtime::Operation* const current_op, std::unique_lock<std::mutex>& lock)
+        void schedule_next_operation(Runtime::Operation* const current_op, std::unique_lock<std::mutex>& lock, std::optional<size_t> resource_id = std::nullopt, Resources::SynchronizedResource::RaceState state = Resources::SynchronizedResource::RaceState::DefaultState)
         {
             if (!current_op->is_scheduled())
             {

@@ -754,6 +754,9 @@ namespace SystematicTesting
             // The id of the resource that this operation is waiting for, if any.
             std::optional<size_t> m_dependent_resource_id;
 
+            // The list of objects that this operation is racing on, if any. 
+            std::optional<size_t> m_racy_objects;
+
             // The count of child operations created by this operation.
             size_t m_child_op_count;
 
@@ -1723,6 +1726,107 @@ namespace SystematicTesting
             {
                 return record_integer_choice(m_random_generator.next_integer(max_value));
             }
+
+            // Returns the next operation.
+            const Operation* next_operation(Operations& operations, const Operation* current) override
+            {
+                // Set priorities of any new enabled operations not in the list
+                set_new_enabled_operation_priorities(operations, current);
+
+                // Get the highest-priority operation id, or if there is only one operation, just return it.
+                auto next_op = operations.size() > 1 ? get_operation_with_highest_priority(operations) : operations[0];
+
+                // Remove enabled operations which race with chosen operation from priority list
+                remove_racing_operations(next_op);
+
+                return record_operation_choice(next_op);
+            }
+
+        private:
+            // List representing the priorities of operations in the current iteration.
+            // The highest-priority operation is at the head of the list.
+            std::list<const Operation*> m_prioritized_operations;
+
+            // Returns the highest-priority operation id.
+            const Operation* get_operation_with_highest_priority(Operations& operations)
+            {
+                for (auto next_op : m_prioritized_operations)
+                {
+                    if (operations.is_enabled(next_op->id))
+                    {
+                        return next_op;
+                    }
+                }
+
+                return nullptr;
+            }
+
+            // Removes from the priority list all operations that race with the picked operation.
+            void remove_racing_operations(const Operation* picked_op)
+            {
+                m_prioritized_operations.erase(std::remove_if(m_prioritized_operations.begin(), m_prioritized_operations.end(), [&](const Operation* op) { return if_race(op, picked_op); }), m_prioritized_operations.end());
+            }
+
+            // Returns if two operations race with one another
+            bool if_race(const Operation* op1, const Operation* op2)
+            {
+                // TODO: Implement it. 
+            }
+
+            // Sets a random priority to any new enabled operations.
+            void set_new_enabled_operation_priorities(Operations& operations, const Operation* current)
+            {
+                size_t previous_size = m_prioritized_operations.size();
+                if (previous_size == 0)
+                {
+                    m_prioritized_operations.push_back(current);
+                }
+
+                // Randomize the priority of all new operations.
+                for (size_t idx = 0; idx < operations.size(); ++idx)
+                {
+                    auto op = operations[idx];
+
+                    // Assign priority only if operation is enabled. 
+                    // TODO: Check if this is the best/correct way to do this
+                    if(operations.is_enabled(op->id))
+                    {
+                        auto op_it = std::find_if(m_prioritized_operations.begin(), m_prioritized_operations.end(),
+                        [&](const Operation* next_op) { return next_op->id == op->id; });
+                        if (op_it == m_prioritized_operations.end())
+                        {
+                            // Randomly choose a priority for this operation.
+                            size_t index = m_random_generator.next_integer(m_prioritized_operations.size() - 1) + 1;
+                            auto it = std::next(m_prioritized_operations.begin(), index);
+                            m_prioritized_operations.insert(it, op);
+                            m_logger.log_debug("[st::strategy] assigned priority '", index, "' to operation '", op->id, "'.");
+                        }
+                    }
+                }
+
+                log_debug_operation_priority_list(operations, previous_size);
+            }
+
+            // Log the operation group priority list, if debug is enabled.
+            void log_debug_operation_priority_list(Operations& operations, size_t previous_size)
+            {
+                if (m_logger.verbosity_level() == VerbosityLevel::Debug && m_prioritized_operations.size() > previous_size)
+                {
+                    m_logger.log_debug("[st::strategy] updated operation priority list:");
+                    int idx = 0;
+                    for (auto op : m_prioritized_operations)
+                    {
+                        if (operations.is_enabled(op->id))
+                        {
+                            m_logger.log_debug("[st::strategy]   [", idx++, "] operation '", op->id, "' [enabled]");
+                        }
+                        else
+                        {
+                            m_logger.log_debug("[st::strategy]   [", idx++, "] operation '", op->id, "'");
+                        }
+                    }
+                }
+            }
         };
 
         // A replay strategy that can reproduce an execution from its sequence of choices.
@@ -1997,18 +2101,10 @@ namespace SystematicTesting
 
         // Schedules the next operation, which can include the currently executing operation.
         // Only operations that are not blocked nor completed can be scheduled.
-        void schedule_next_operation(std::optional<size_t> resource_id = std::nullopt, Resources::SynchronizedResource::RaceState state = Resources::SynchronizedResource::RaceState::DefaultState)
+        void schedule_next_operation()
         {
             std::unique_lock<std::mutex> lock(m_lock);
-            if (resource_id != std::nullopt)
-            {
-                schedule_next_operation(lock, resource_id, state);
-            }
-            else
-            {
-                schedule_next_operation(lock);
-            }
-
+            schedule_next_operation(lock);
         }
 
         // Completes the currently executing operation and schedules the next operation.
@@ -2515,18 +2611,11 @@ namespace SystematicTesting
 
         // Schedules the next operation, which can include the currently executing operation.
         // Only operations that are not blocked nor completed can be scheduled.
-        void schedule_next_operation(std::unique_lock<std::mutex>& lock, std::optional<size_t> resource_id = std::nullopt, Resources::SynchronizedResource::RaceState state = Resources::SynchronizedResource::RaceState::DefaultState)
+        void schedule_next_operation(std::unique_lock<std::mutex>& lock)
         {
             if (auto current_op = get_executing_operation_if(m_status == Status::Attached))
             {
-                if (resource_id != std::nullopt)
-                {
-                    schedule_next_operation(current_op, lock, resource_id, state);
-                }
-                else 
-                {
-                    schedule_next_operation(current_op, lock);
-                }
+                schedule_next_operation(current_op, lock);
             }
             else
             {
@@ -2537,7 +2626,7 @@ namespace SystematicTesting
 
         // Schedules the next operation, which can include the currently executing operation.
         // Only operations that are not blocked nor completed can be scheduled.
-        void schedule_next_operation(Runtime::Operation* const current_op, std::unique_lock<std::mutex>& lock, std::optional<size_t> resource_id = std::nullopt, Resources::SynchronizedResource::RaceState state = Resources::SynchronizedResource::RaceState::DefaultState)
+        void schedule_next_operation(Runtime::Operation* const current_op, std::unique_lock<std::mutex>& lock)
         {
             if (!current_op->is_scheduled())
             {

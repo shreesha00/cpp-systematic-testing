@@ -707,7 +707,8 @@ namespace SystematicTesting
                 m_is_scheduled(false),
                 m_dependencies(),
                 m_dependent_resource_id(std::nullopt),
-                m_child_op_count(0)
+                m_child_op_count(0),
+                m_racy_objects()
             {
             }
 
@@ -735,6 +736,12 @@ namespace SystematicTesting
                 return m_is_scheduled;
             }
 
+            // Returns the list of objects this operation is racing on. 
+            const vector<size_t>& get_racy_objects() const noexcept 
+            {
+                return m_racy_objects;
+            }
+
         private:
             // The id of the thread currently executing this operation.
             std::thread::id m_thread_id;
@@ -754,8 +761,8 @@ namespace SystematicTesting
             // The id of the resource that this operation is waiting for, if any.
             std::optional<size_t> m_dependent_resource_id;
 
-            // The list of objects that this operation is racing on, if any. 
-            std::optional<size_t> m_racy_objects;
+            // The list of objects that this operation is racing on. 
+            vector<size_t> m_racy_objects;
 
             // The count of child operations created by this operation.
             size_t m_child_op_count;
@@ -1768,9 +1775,20 @@ namespace SystematicTesting
             }
 
             // Returns if two operations race with one another
-            bool if_race(const Operation* op1, const Operation* op2)
+            bool if_race(const Operation* op, const Operation* picked_op)
             {
-                // TODO: Implement it. 
+                for (auto obj1 : op->get_racy_objects())
+                {
+                    for (auto obj2 : picked_op->get_racy_objects())
+                    {
+                        if(obj1 == obj2)
+                        {
+                            m_logger.log_debug("[st::strategy] removed operation '", op->id, "' from priority list as it was racing with picked operation '", picked_op->id, "'.");
+                            return true;
+                        }
+                    }
+                }
+                return false;
             }
 
             // Sets a random priority to any new enabled operations.
@@ -2096,6 +2114,16 @@ namespace SystematicTesting
             {
                 m_logger.log_debug("[st::engine] unable to pause detached thread '", std::this_thread::get_id(),
                     "' until condition gets satisfied.");
+            }
+        }
+
+        // Add resource to set of racy objects 
+        void racing_on_resource(size_t resource_id)
+        {
+            std::unique_lock<std::mutex> lock(m_lock);
+            if (auto current_op = get_executing_operation_if(m_status == Status::Attached))
+            {
+                current_op->add_racy_obj(resource_id);
             }
         }
 

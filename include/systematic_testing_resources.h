@@ -103,7 +103,6 @@ namespace SystematicTesting::Resources
                     if (test_engine->try_release_resource(m_id.value()))
                     {
                         m_status = Status::Released;
-                        test_engine->
                         if (test_engine->settings().is_resource_race_checking_enabled())
                         {
                             // Introduce an interleaving after the resource is released.

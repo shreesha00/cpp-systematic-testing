@@ -737,9 +737,31 @@ namespace SystematicTesting
             }
 
             // Returns the list of objects this operation is racing on. 
-            const vector<size_t>& get_racy_objects() const noexcept 
+            const std::vector<size_t>& get_racy_objects() const noexcept 
             {
                 return m_racy_objects;
+            }
+
+            // Removes the object from the list of objects this operation is racing on. 
+            void remove_racy_object(size_t object_id) 
+            {
+                auto obj_it = std::find_if(m_racy_objects.begin(), m_racy_objects.end(), [&](const size_t& obj_id) { return obj_id == object_id; });
+                if (obj_it == m_racy_objects.end())
+                {
+                    // This is defensive code that should normally never happen, unless there is a bug
+                    // in the engine or instrumentation code.
+                    // TODO: Fix this. 
+                    std::string error = Logger::format("unable to remove non-existant racy object '", object_id, "' from operation '", id, "'");
+                    m_logger.log_error("[st::error] ", error, ".");
+                    throw Exceptions::InstrumentationError(error);
+                }
+                m_racy_objects.erase(obj_it);
+            }
+
+            // Adds an object that this operation is racing on
+            void add_racy_object(size_t object_id) noexcept
+            {
+                // TODO: Implement this. 
             }
 
         private:
@@ -762,7 +784,7 @@ namespace SystematicTesting
             std::optional<size_t> m_dependent_resource_id;
 
             // The list of objects that this operation is racing on. 
-            vector<size_t> m_racy_objects;
+            std::vector<size_t> m_racy_objects;
 
             // The count of child operations created by this operation.
             size_t m_child_op_count;
@@ -2871,6 +2893,9 @@ namespace SystematicTesting
             {
                 m_logger.log_info("[st::engine] released resource '", resource_id, "' with '",
                     owner_ops.size(), "' owners from thread '", std::this_thread::get_id(), "'.");
+
+                // Remove the resource from the list of objects this operation is racing for. 
+                op->remove_racy_object(resource_id);
 
                 // Remove the operation from the owner set and check if there are no more owners.
                 // If that is the case, then unblock all corresponding blocked operations.

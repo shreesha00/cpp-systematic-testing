@@ -285,8 +285,8 @@ void run_iteration()
     user_test.uid_keyring = NULL;
     user_test.session_keyring = NULL;
     struct pthread_args* arg_two = NULL;
-    ControlledTask<void> t1([&arg_one] { try { thread_one(&arg_one); } catch(std::exception& e) { std::cout << e.what() << std::endl; }});
-    ControlledTask<void> t2([&arg_two] { try { thread_two(arg_two); } catch(std::exception& e) { std::cout << e.what() << std::endl; }});
+    ControlledTask<void> t1([&arg_one] { try { thread_one(&arg_one); } catch (std::exception& e) { std::cout << e.what() << std::endl; }});
+    ControlledTask<void> t2([&arg_two] { try { thread_two(arg_two); } catch (std::exception& e) { std::cout << e.what() << std::endl; }});
     t1.start();
     t2.start();
 

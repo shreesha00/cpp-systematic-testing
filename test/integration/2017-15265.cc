@@ -324,7 +324,7 @@ int main()
             {
                 run_iteration();
             }
-            catch(const std::exception& e)
+            catch (const std::exception& e)
             {
                 std::cerr << e.what() << '\n';
             }

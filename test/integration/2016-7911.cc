@@ -112,8 +112,8 @@ void run_iteration()
 	task_test.alloc_lock = new Resources::SynchronizedResource();
 	task_test.io_context.write_wo_interleaving(&ioc_test);
 
-    ControlledTask<void> t1([&task_test] { try { thread_one(&task_test); } catch(const std::exception& e) { std::cerr << e.what() << std::endl; } });
-    ControlledTask<void> t2([&task_test] { try { thread_two(&task_test); } catch(const std::exception& e) { std::cerr << e.what() << std::endl; } });
+    ControlledTask<void> t1([&task_test] { try { thread_one(&task_test); } catch (const std::exception& e) { std::cerr << e.what() << std::endl; } });
+    ControlledTask<void> t2([&task_test] { try { thread_two(&task_test); } catch (const std::exception& e) { std::cerr << e.what() << std::endl; } });
 
 	t1.start();
     t2.start();
@@ -169,7 +169,7 @@ int main(){
             {
                 run_iteration();
             }
-            catch(const std::exception& e)
+            catch (const std::exception& e)
             {
                 std::cerr << e.what() << std::endl;
             }

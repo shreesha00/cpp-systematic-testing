@@ -21,14 +21,15 @@ struct CRITICAL_SECTION{
     }
 };
 
-void Inc(long* num)
+void Inc(RacyVariable<long>& waiters)
 {
-    ++(*num);
+    waiters = waiters + 1;
 }
 
-long Dec(long* num)
+long Dec(RacyVariable<long>& waiters)
 {
-    return --(*num);
+    waiters = waiters - 1;
+    return waiters.read_wo_interleaving();
 }
 
 void Enter(Resources::SynchronizedResource* l)
@@ -43,8 +44,8 @@ void Exit(Resources::SynchronizedResource* l)
 
 
 CRITICAL_SECTION* lock;
-long waiters;
-RacyVariable<int> done;
+RacyVariable<long> waiters;
+int done;
 
 std::string err_path;
 void/*void**/ once(void* arg, int thread_num)
@@ -59,7 +60,7 @@ void/*void**/ once(void* arg, int thread_num)
     if(done)
         return;
 
-    Inc(&waiters);
+    Inc(waiters);
 
     if(!lock)
     {
@@ -79,7 +80,7 @@ void/*void**/ once(void* arg, int thread_num)
 
     Exit(lock->mutex);
 
-    if(!Dec(&waiters))
+    if(!Dec(waiters))
     {
         printf("T-%lx, After  Decrement waiters = %ld\n", thread_num, waiters);
         printf("T-%lx, free lock %p\n", thread_num, lock);
@@ -94,12 +95,13 @@ void run_iteration()
 {
     void* arg = NULL;
 
-    waiters = 0;
-    done.write_wo_interleaving(0);
-    if(!lock)
+    waiters.write_wo_interleaving(0);
+    done = 0;
+    if(lock)
     {
-        lock = new CRITICAL_SECTION();
+        delete lock;
     }
+    lock = new CRITICAL_SECTION();
 
     ControlledTask<void> t1([&arg] { once(arg, 0); });
     ControlledTask<void> t2([&arg] { once(arg, 1); });

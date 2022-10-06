@@ -129,8 +129,8 @@ void run_iteration()
     pthread_join(t2, NULL);
     pthread_join(t1, NULL);
     */
-    ControlledTask<void> t1([&key] { try { thread1(key); } catch(std::exception& e) { std::cout << e.what() << std::endl; } });
-    ControlledTask<void> t2([&key] { try { thread2(key); } catch(std::exception& e) { std::cout << e.what() << std::endl; } });
+    ControlledTask<void> t1([&key] { try { thread1(key); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
+    ControlledTask<void> t2([&key] { try { thread2(key); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
 
     t2.start();
     t1.start();

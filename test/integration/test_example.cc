@@ -2,29 +2,32 @@
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
 #include <iostream>
-int* p;
+#include "racy_variable.h"
+
+RacyPointer<int> p;
 void thread_one()
 {
-    if(p == NULL)
-    {
-        auto test_engine = GetTestEngine();
-        test_engine->notify_assertion_failure("NULL ptr dereference");
-        return;
-    }
-    *p = 4;
+    p = new int;
+    p.allocated();
+    *p = 5;
+    p.freeing();
+    free(p.read_wo_interleaving());
 }
 
 void thread_two()
 {
-    delete p;
-    p = NULL;
+    p = new int;
+    p.allocated();
+    *p = 4;
+    p.freeing();
+    free(p.read_wo_interleaving());
 }
+
 
 void run_iteration()
 {
-    ControlledTask<void> t1(thread_one);
-    ControlledTask<void> t2(thread_two);
-    p = new int;
+    ControlledTask<void> t1([] { try { thread_one(); } catch (std::exception& e) { std::cout << e.what() << std::endl; }});
+    ControlledTask<void> t2([] { try { thread_two(); } catch (std::exception& e) { std::cout << e.what() << std::endl; }});
     t1.start();
     t2.start();
     t1.wait();
@@ -64,6 +67,5 @@ int main()
     }
   
     std::cout << "[test] done in " << total_time(start_time) << "ms." << std::endl;
-    return 0;
     return 0;
 }

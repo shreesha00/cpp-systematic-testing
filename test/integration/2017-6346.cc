@@ -11,7 +11,8 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
-#include "racy_variable.h"
+#include "racy_variable.h" 
+#include "malloc_wrapper.h"
 // #define TEST_TIME
 
 #define PACKET_FANOUT_ROLLOVER		3
@@ -87,12 +88,10 @@ static int fanout_add(struct sock *sk, u16 type_flags, int thread_id)
     u8 type = type_flags & 0xff;
     int err;
 
-    std::cout << "Here" << std::endl;
     if (type == PACKET_FANOUT_ROLLOVER ||
         (type_flags & PACKET_FANOUT_FLAG_ROLLOVER)) {
 
-        po->rollover = (packet_rollover*)kzalloc(sizeof(packet_rollover));
-        po->rollover.allocated();
+        po->rollover = (packet_rollover*)malloc_safe(sizeof(packet_rollover));
 
         /* uncomment to catch use after free bugs as well */
         //test_engine->schedule_next_operation(); 
@@ -109,12 +108,9 @@ static int fanout_add(struct sock *sk, u16 type_flags, int thread_id)
     err = -EINVAL;
     fanout_mutex->release();
 
-    std::cout << "Now Here" << std::endl;
 
     if (err) {
-        std::cout << "Maybe Here" << std::endl;
-        po->rollover.freeing();
-        kfree(po->rollover.read_wo_interleaving());
+        free_safe(po->rollover.read_wo_interleaving());
         // po->rollover = NULL;
     }
 

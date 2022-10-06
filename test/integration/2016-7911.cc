@@ -7,7 +7,8 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
-#include "racy_variable.h"
+#include "racy_variable.h" 
+#include "malloc_wrapper.h"
 // #define TEST_TIME
 
 typedef struct {

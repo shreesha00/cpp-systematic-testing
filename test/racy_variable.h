@@ -3,7 +3,6 @@
 
 /***************************************************/
 // Implements a wrapper around variable access that introduces interleavings prior to variable accesses. 
-// Wrapper also implements instrumentation that catches Double Free, Use After Free and Null pointer dereference errors
 /***************************************************/
 #ifndef SYSTEMATIC_TESTING_RACY_VARIABLE_H
 #define SYSTEMATIC_TESTING_RACY_VARIABLE_H
@@ -18,6 +17,7 @@
 #include <unordered_set>
 
 #include "systematic_testing.h"
+#include "malloc_wrapper.h"
 
 using namespace std::chrono_literals;
 using namespace SystematicTesting;
@@ -31,23 +31,6 @@ public:
     }
 };
 
-class DoubleFreeException : public std::exception
-{
-public:
-    std::string what()
-    {
-        return "Double Free detected";
-    }
-};
-
-class UseAfterFreeException : public std::exception 
-{
-public:
-    std::string what()
-    {
-        return "Use After Free detected";
-    }
-};
 
 template<typename VariableType>
 class RacyVariable
@@ -107,15 +90,8 @@ public:
     explicit RacyPointer() :
         m_var()
     {
-        m_freed.clear();
     }
 
-    RacyPointer(const RacyPointer& p)
-    {
-        m_var = p.m_var;
-        m_freed.clear();
-        m_freed = p.m_freed;
-    }
     operator VariableType*() const
     {
         return read();
@@ -140,24 +116,6 @@ public:
         throw_if_null();
         detect_use_after_free();
         return *m_var;
-    }
-
-    // To be called after the = operator is invoked with the RHS being a memory allocation. Tracks use after free and double free errors
-    void allocated()
-    {   
-        if (m_freed.find((void*)m_var) != m_freed.end())
-        {
-            m_freed.erase((void*)m_var);
-        }
-    }
-
-    // To be called before invoking free(<RacyPointer>.read_wo_interleaving()). 
-    // Detects double free if the allocation and previous de-allocations have been instrumented correctly. 
-    void freeing()
-    {
-        (GetTestEngine())->schedule_next_operation();
-        detect_double_free();
-        mark_free();
     }
 
     // Read from the racy pointer. Introduces an interleaving prior to the memory access. 
@@ -188,7 +146,6 @@ public:
 
 private:
     VariableType* m_var;
-    std::unordered_set<void*> m_freed;
 
     // Throw a null pointer exception if m_var is NULL. 
     void throw_if_null() const
@@ -200,26 +157,10 @@ private:
         }
     }
 
-    // Throw a double free exception if detected in m_var
-    void detect_double_free() const
+    // Detect use after free of pointer in m_var
+    void detect_use_after_free() const 
     {
-        if (m_freed.find((void*)m_var) != m_freed.end())
-        {
-            (GetTestEngine())->notify_assertion_failure("Double Free detected");
-            throw DoubleFreeException();
-        }
-    }
-
-    // Mark the address contained in m_var as freed
-    void mark_free()
-    {
-        m_freed.insert((void*)m_var);
-    }
-
-    // Throw a use after free exception if detected in m_var
-    void detect_use_after_free() const
-    {
-        if (m_freed.find((void*)m_var) != m_freed.end())
+        if (__freed.find((void*)m_var) != __freed.end())
         {
             (GetTestEngine())->notify_assertion_failure("Use After Free detected");
             throw UseAfterFreeException();

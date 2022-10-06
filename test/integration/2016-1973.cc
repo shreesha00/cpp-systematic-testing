@@ -27,6 +27,16 @@ enum CreateOperation {
 	kDestroy
 };
 
+/*
+long _InterlockedIncrement(std::atomic_long volatile * ref){
+	return std::atomic_fetch_add(ref, (long)1) + 1;
+}
+
+long _InterlockedDecrement(std::atomic_long volatile * ref){
+	return std::atomic_fetch_sub(ref, (long)1) - 1;
+}
+*/
+
 long _InterlockedIncrement(std::atomic_long volatile * ref){
 	return std::atomic_fetch_add(ref, (long)1) + 1;
 }

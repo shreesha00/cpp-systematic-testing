@@ -9,7 +9,8 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
-#include "racy_variable.h"
+#include "racy_variable.h" 
+#include "malloc_wrapper.h"
 // #define TEST_TIME
 
 struct CRITICAL_SECTION{
@@ -43,7 +44,7 @@ void Exit(Resources::SynchronizedResource* l)
 }
 
 
-CRITICAL_SECTION* lock;
+RacyPointer<CRITICAL_SECTION> lock;
 RacyVariable<long> waiters;
 int done;
 
@@ -62,12 +63,6 @@ void/*void**/ once(void* arg, int thread_num)
 
     Inc(waiters);
 
-    if(!lock)
-    {
-        (GetTestEngine())->notify_assertion_failure("NULL ptr dereference");
-        //Dec(&waiters);
-        return;
-    }
     Enter(lock->mutex);
     printf("T-%d, Enter\n", thread_num);
 
@@ -84,7 +79,7 @@ void/*void**/ once(void* arg, int thread_num)
     {
         printf("T-%lx, After  Decrement waiters = %ld\n", thread_num, waiters);
         printf("T-%lx, free lock %p\n", thread_num, lock);
-        delete lock;
+        free_safe(lock.read_wo_interleaving());
         lock = NULL;
     }
 }
@@ -97,14 +92,16 @@ void run_iteration()
 
     waiters.write_wo_interleaving(0);
     done = 0;
-    if(lock)
+    CRITICAL_SECTION* p = lock.read_wo_interleaving();
+    if(p)
     {
-        delete lock;
+        p->~CRITICAL_SECTION();
+        free_safe(p);
     }
-    lock = new CRITICAL_SECTION();
+    lock = new(malloc_safe(sizeof(CRITICAL_SECTION))) CRITICAL_SECTION();
 
-    ControlledTask<void> t1([&arg] { once(arg, 0); });
-    ControlledTask<void> t2([&arg] { once(arg, 1); });
+    ControlledTask<void> t1([&arg] { try { once(arg, 0); } catch (std::exception& e) { std::cout << e.what() << std::endl; } } );
+    ControlledTask<void> t2([&arg] { try { once(arg, 1); } catch (std::exception& e) { std::cout << e.what() << std::endl; } } );
 
     t1.start();
     t2.start();
@@ -175,9 +172,9 @@ int main()
     try
     {
         auto settings = CreateDefaultSettings();
-        //settings.with_resource_race_checking_enabled(true);
+        settings.with_resource_race_checking_enabled(true);
         settings.with_prioritization_strategy();
-        SystematicTestEngineContext context(settings, 10000);
+        SystematicTestEngineContext context(settings, 1000);
         while (auto iteration = context.next_iteration())
         {
             run_iteration();

@@ -6,7 +6,8 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
-#include "racy_variable.h"
+#include "racy_variable.h" 
+#include "malloc_wrapper.h"
 // #define TEST_TIME
 
 typedef __signed__ int __s32;
@@ -310,8 +311,9 @@ int main(){
     {
         auto settings = CreateDefaultSettings();
         //settings.with_resource_race_checking_enabled(true);
-        settings.with_prioritization_strategy();
-        SystematicTestEngineContext context(settings, 10000);
+		settings.with_random_generator_seed(time(NULL));
+        settings.with_prioritization_strategy(10);
+        SystematicTestEngineContext context(settings, 1000);
         while (auto iteration = context.next_iteration())
         {
             run_iteration();

@@ -2,25 +2,22 @@
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
 #include <iostream>
-#include "racy_variable.h"
+#include "racy_variable.h" 
+#include "malloc_wrapper.h"
 
 RacyPointer<int> p;
 void thread_one()
 {
-    p = new int;
-    p.allocated();
+    p = (int*)malloc_safe(sizeof(int));
     *p = 5;
-    p.freeing();
-    free(p.read_wo_interleaving());
+    free_safe(p.read_wo_interleaving());
 }
 
 void thread_two()
 {
-    p = new int;
-    p.allocated();
+    p = (int*)malloc_safe(sizeof(int));
     *p = 4;
-    p.freeing();
-    free(p.read_wo_interleaving());
+    free_safe(p.read_wo_interleaving());
 }
 
 

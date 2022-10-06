@@ -10,7 +10,8 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
-
+#include "malloc_wrapper.h"
+#include "racy_variable.h"
 //#define MUTEX_FOR_CORRECT_EXE_SEQUENCE
 
 #ifdef MUTEX_FOR_CORRECT_EXE_SEQUENCE
@@ -41,7 +42,7 @@ struct sk_buff
 };
 
 struct netlink_callback {
-	struct sk_buff		*skb;
+	RacyPointer<struct sk_buff> skb;
 };
 
 struct netlink_sock {
@@ -87,7 +88,7 @@ void netlink_dump(void* args)
 
     if(!skb)
     {
-        skb = (struct sk_buff*)malloc(cnt*sizeof(struct sk_buff));
+        skb = (struct sk_buff*)malloc_safe(cnt*sizeof(struct sk_buff));
         cnt *= 4;
     }
 
@@ -96,16 +97,8 @@ void netlink_dump(void* args)
 
 	mutex->release();
 
-    auto test_engine = GetTestEngine();
-    test_engine->schedule_next_operation();
     //std::cout << "Freeing " << cb->skb << std::endl;
-    if(cb->skb == NULL)
-    {
-        test_engine->notify_assertion_failure("double free");
-        return;
-    }
-	free(cb->skb);
-    cb->skb = NULL;
+	free_safe(cb->skb);
 
 # ifdef MUTEX_FOR_CORRECT_EXE_SEQUENCE
 	if(thread_id == 1)
@@ -137,8 +130,8 @@ void run_iteration()
     arg2.sk=(void*)sk;
     arg2.thread_id=2;
 
-    ControlledTask<void> t1([&arg1] { netlink_dump(&arg1); });
-    ControlledTask<void> t2([&arg2] { netlink_dump(&arg2); });
+    ControlledTask<void> t1([&arg1] { try { netlink_dump(&arg1); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
+    ControlledTask<void> t2([&arg2] { try { netlink_dump(&arg2); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
 
     t1.start();
     t2.start();

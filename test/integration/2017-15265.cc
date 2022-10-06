@@ -8,6 +8,8 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
+#include "racy_variable.h"
+#include "malloc_wrapper.h"
 //#define MUTEX_FOR_CORRECT_EXE_SEQUENCE
 #ifdef MUTEX_FOR_CORRECT_EXE_SEQUENCE
 pthread_mutex_t lock_for_correct_exe;
@@ -40,7 +42,6 @@ struct snd_seq_client {
 	Resources::SynchronizedResource* ports_lock;
 };
 
-std::unordered_map<void*, bool> freed;
 
 struct snd_seq_port_info {
 	struct snd_seq_addr addr;
@@ -109,30 +110,27 @@ void snd_seq_system_broadcast(int client, int port, int type)
 
 }
 
-int snd_seq_set_port_info(struct snd_seq_client_port * port,
+int snd_seq_set_port_info(RacyPointer<struct snd_seq_client_port> port,
 			  struct snd_seq_port_info * info)
 {
-	if(freed.find(port) != freed.end())
-	{
-		auto test_engine = GetTestEngine();
-		test_engine->notify_assertion_failure("use after free");
-		return -1;
-	}
 	port->type = info->type;
-	printf("write, port = %p\n", port);
+	printf("write, port = %p\n", port.read());
 
 	return 0;
 }
 
-struct snd_seq_client_port *snd_seq_create_port(struct snd_seq_client *client,
+RacyPointer<struct snd_seq_client_port>snd_seq_create_port(struct snd_seq_client *client,
 						int port)
 {
-	struct snd_seq_client_port *new_port, *p;
+	RacyPointer<struct snd_seq_client_port>new_port, p;
 	int num = -1;
 
-	new_port = (snd_seq_client_port*)kzalloc(sizeof(*new_port));
+	new_port = (snd_seq_client_port*)malloc_safe(sizeof(*new_port));
 	if (!new_port)
-		return NULL;
+	{
+		new_port = NULL;
+		return new_port;
+	}
 	new_port->addr.client = client->number;
 	new_port->addr.port = -1;
 
@@ -162,7 +160,7 @@ static int snd_seq_ioctl_create_port(struct snd_seq_client *client, void *arg)
 {
 	auto test_engine = GetTestEngine();
 	struct snd_seq_port_info *info = (snd_seq_port_info*)arg;
-	struct snd_seq_client_port *port;
+	RacyPointer<struct snd_seq_client_port>port;
 
 	if (info->addr.client != client->number)
 		return -EPERM;
@@ -170,16 +168,10 @@ static int snd_seq_ioctl_create_port(struct snd_seq_client *client, void *arg)
 	port = snd_seq_create_port(client, (info->flags & SNDRV_SEQ_PORT_FLG_GIVEN_PORT) ? info->addr.port : -1);
 	if (port == NULL)
 		return -ENOMEM;
-	printf("create, port = %p\n", port);
+	printf("create, port = %p\n", port.read());
 
-	printf("use, port = %p\n", port);
+	printf("use, port = %p\n", port.read());
 	snd_seq_set_port_info(port, info);
-	if(freed.find(port) != freed.end())
-	{
-		auto test_engine = GetTestEngine();
-		test_engine->notify_assertion_failure("use after free");
-		return -1;
-	}
 	snd_seq_system_client_ev_port_start(port->addr.client, port->addr.port);
 
 # ifdef MUTEX_FOR_CORRECT_EXE_SEQUENCE
@@ -203,18 +195,18 @@ list_del(struct list_head *entry)
 }
 
 static int port_delete(struct snd_seq_client *client,
-		       struct snd_seq_client_port *port)
+		       RacyPointer<struct snd_seq_client_port>port)
 {
 	port->use_lock->acquire();
-	kfree(port);
-	freed[(void*)port] = true;
-	printf("delete, port = %p\n", port);
+	free_safe(port);
+	printf("delete, port = %p\n", port.read());
 	return 0;
 }
 
 int snd_seq_delete_port(struct snd_seq_client *client, int port)
 {
-	struct snd_seq_client_port *found = NULL, *p;
+	RacyPointer<struct snd_seq_client_port> found, p;
+	found = NULL;
 
 	client->ports_mutex->acquire();
 	client->ports_lock->acquire();
@@ -266,7 +258,6 @@ void run_iteration()
 	lock_for_correct_exe->acquire();
 #endif
 
-	freed.clear();
 	struct snd_seq_client clt_test;
 	struct snd_seq_client_port port_test;
 	struct snd_seq_port_info info_test;
@@ -292,8 +283,8 @@ void run_iteration()
 	struct thread_args args;
 	args.clt = &clt_test;
 	args.info = &info_test;
-	ControlledTask<void> t1([&args] { thread_one(&args); });
-	ControlledTask<void> t2([&clt_test] { thread_two(&clt_test); });
+	ControlledTask<void> t1([&args] { try { thread_one(&args); } catch (std::exception& e) { std::cout << e.what() << std::endl; } } );
+	ControlledTask<void> t2([&clt_test] { try { thread_two(&clt_test); } catch (std::exception& e) { std::cout << e.what() << std::endl; } } );
     t1.start();
 	t2.start();
 	t1.wait();

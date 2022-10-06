@@ -138,6 +138,7 @@ namespace SystematicTesting
     {
         Random = 0,
         Prioritization,
+        PartialOrderSampling,
         Replay
     };
 
@@ -186,6 +187,12 @@ namespace SystematicTesting
         {
             m_strategy_type = StrategyType::Replay;
             m_replay_trace = trace;
+        }
+
+        // Configures the engine to use the partial order sampling strategy 
+        void with_pos_strategy()
+        {
+            m_strategy_type = StrategyType::PartialOrderSampling;    
         }
 
         // Configures the engine to enable race checking for synchronization resources, which introduces
@@ -748,12 +755,15 @@ namespace SystematicTesting
                 auto obj_it = std::find_if(m_racy_objects.begin(), m_racy_objects.end(), [&](const size_t& obj_id) { return obj_id == object_id; });
                 if (obj_it == m_racy_objects.end())
                 {
+                    /*
                     // This is defensive code that should normally never happen, unless there is a bug
                     // in the engine or instrumentation code.
-                    // TODO: Fix this. 
+                    // TODO: How to access the test engine's logger at this point?
                     std::string error = Logger::format("unable to remove non-existant racy object '", object_id, "' from operation '", id, "'");
                     m_logger.log_error("[st::error] ", error, ".");
                     throw Exceptions::InstrumentationError(error);
+                    */
+                   return;
                 }
                 m_racy_objects.erase(obj_it);
             }
@@ -761,7 +771,11 @@ namespace SystematicTesting
             // Adds an object that this operation is racing on
             void add_racy_object(size_t object_id) noexcept
             {
-                // TODO: Implement this. 
+                auto obj_it = std::find_if(m_racy_objects.begin(), m_racy_objects.end(), [&](const size_t& obj_id) { return obj_id == object_id; });
+                if (obj_it == m_racy_objects.end())
+                {
+                    m_racy_objects.push_back(object_id);
+                }    
             }
 
         private:
@@ -1366,6 +1380,10 @@ namespace SystematicTesting
                 {
                     return "replay";
                 }
+                else if (m_type == StrategyType::PartialOrderSampling)
+                {
+                    return "partial order sampling";
+                }
 
                 return "random";
             }
@@ -1967,6 +1985,10 @@ namespace SystematicTesting
             {
                 return std::make_unique<ReplayStrategy>(settings, logger);
             }
+            else if (settings.exploration_strategy() == StrategyType::PartialOrderSampling)
+            {
+                return std::make_unique<POSStrategy>(settings, logger);
+            }
 
             return std::make_unique<RandomStrategy>(settings, logger);
         }
@@ -2145,7 +2167,7 @@ namespace SystematicTesting
             std::unique_lock<std::mutex> lock(m_lock);
             if (auto current_op = get_executing_operation_if(m_status == Status::Attached))
             {
-                current_op->add_racy_obj(resource_id);
+                current_op->add_racy_object(resource_id);
             }
         }
 

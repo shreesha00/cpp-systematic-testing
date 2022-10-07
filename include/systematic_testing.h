@@ -1740,7 +1740,8 @@ namespace SystematicTesting
             // https://www.cs.columbia.edu/~rgu/publications/cav18-yuan.pdf
         public: 
             POSStrategy(const Settings& settings, const Logger& logger) noexcept :
-            Strategy(settings, logger)  
+                Strategy(settings, logger), 
+                m_prioritized_operations()
             {
             }
             

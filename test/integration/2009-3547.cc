@@ -40,8 +40,7 @@ struct INODE
 };
 
 
-struct INODE* inode = new INODE();
-struct pipe_inode_info* i_pipe = inode->i_pipe.read_wo_interleaving();
+struct INODE* inode;
 
 void/*static void**/ pipe_write_open(void* arg)
 {
@@ -62,6 +61,7 @@ void/*static void**/ involve(void* arg)
 
 void run_iteration()
 {
+    inode = new INODE();
     void* args(NULL);
     ControlledTask<void> t1([&args] { try { pipe_write_open(args); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
     ControlledTask<void> t2([&args] { try { involve(args); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
@@ -69,7 +69,7 @@ void run_iteration()
     t2.start();
     t1.wait();
     t2.wait();
-    inode->i_pipe.write_wo_interleaving(i_pipe);
+    delete inode;
     printf("\nprogram-successful-exit\n");
 }
 

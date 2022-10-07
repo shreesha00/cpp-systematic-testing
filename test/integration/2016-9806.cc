@@ -61,7 +61,7 @@ static inline struct netlink_sock *nlk_sk(struct sock *sk)
 	return container_of(sk, struct netlink_sock, sk);
 }
 
-Resources::SynchronizedResource* mutex = new Resources::SynchronizedResource();
+Resources::SynchronizedResource* mutex;
 int cnt = 1;
 
 void netlink_dump(void* args)
@@ -119,8 +119,7 @@ void run_iteration()
 	lock_for_correct_exe = new Resources::SynchronizedResource();
     lock_for_correct_exe->acquire();
 #endif
-
-
+    mutex = new Resources::SynchronizedResource();
     struct sock* sk = new sock(5);
 
     struct pthread_args arg1, arg2;
@@ -138,6 +137,7 @@ void run_iteration()
     t1.wait();
     t2.wait();
 
+    delete mutex;
     printf("\nprogram-successful-exit\n");
 #ifdef TEST_TIME
     run_time_end = clock();
@@ -154,9 +154,9 @@ int main()
     try
     {
         auto settings = CreateDefaultSettings();
-        //settings.with_resource_race_checking_enabled(true);
+        settings.with_resource_race_checking_enabled(true);
         settings.with_random_strategy();
-        SystematicTestEngineContext context(settings, 10000);
+        SystematicTestEngineContext context(settings, 1000);
         while (auto iteration = context.next_iteration())
         {
             run_iteration();

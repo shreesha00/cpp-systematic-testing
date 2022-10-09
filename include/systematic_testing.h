@@ -1815,17 +1815,20 @@ namespace SystematicTesting
                 m_prioritized_operations.erase(std::remove_if(m_prioritized_operations.begin(), m_prioritized_operations.end(), [&](const Operation* op) { return if_race(op, picked_op); }), m_prioritized_operations.end());
             }
 
-            // Returns if two operations race with one another
+            // Returns if two different operations race with one another
             bool if_race(const Operation* op, const Operation* picked_op)
             {
-                for (auto obj1 : op->get_racy_objects())
+                if (op != picked_op)
                 {
-                    for (auto obj2 : picked_op->get_racy_objects())
+                    for (auto obj1 : op->get_racy_objects())
                     {
-                        if (obj1 == obj2)
+                        for (auto obj2 : picked_op->get_racy_objects())
                         {
-                            m_logger.log_debug("[st::strategy] removed operation '", op->id, "' from priority list as it was racing with picked operation '", picked_op->id, "'.");
-                            return true;
+                            if (obj1 == obj2)
+                            {
+                                m_logger.log_debug("[st::strategy] removed operation '", op->id, "' from priority list as it was racing with picked operation '", picked_op->id, "'.");
+                                return true;
+                            }
                         }
                     }
                 }
@@ -1841,7 +1844,7 @@ namespace SystematicTesting
                     m_prioritized_operations.push_back(current);
                 }
 
-                // Randomize the priority of all new operations.
+                // Randomize the priority of all new enabled operations.
                 for (size_t idx = 0; idx < operations.size(); ++idx)
                 {
                     auto op = operations[idx];

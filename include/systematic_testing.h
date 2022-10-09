@@ -1822,7 +1822,7 @@ namespace SystematicTesting
                 {
                     for (auto obj2 : picked_op->get_racy_objects())
                     {
-                        if(obj1 == obj2)
+                        if (obj1 == obj2)
                         {
                             m_logger.log_debug("[st::strategy] removed operation '", op->id, "' from priority list as it was racing with picked operation '", picked_op->id, "'.");
                             return true;

@@ -87,8 +87,8 @@ template<typename VariableType>
 class RacyPointer
 {
 public: 
-    explicit RacyPointer() :
-        m_var()
+    explicit RacyPointer(VariableType* const& val = NULL) :
+        m_var(val)
     {
     }
 

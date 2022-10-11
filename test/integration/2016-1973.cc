@@ -9,10 +9,11 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
+#include "malloc_wrapper.h"
+#include "racy_variable.h"
 // #define SLEEP_FOR_RACE
 // #define TEST_TIME
 
-std::unordered_map<void*, bool> freed;
 namespace webrtc {
 
 enum CountOperation {
@@ -38,15 +39,18 @@ long _InterlockedDecrement(std::atomic_long volatile * ref){
 */
 
 long _InterlockedIncrement(std::atomic_long volatile * ref){
+	GetTestEngine()->schedule_next_operation();
 	return std::atomic_fetch_add(ref, (long)1) + 1;
 }
 
 long _InterlockedDecrement(std::atomic_long volatile * ref){
+	GetTestEngine()->schedule_next_operation();
 	return std::atomic_fetch_sub(ref, (long)1) - 1;
 }
 
 template <class T>
 inline T InterlockedExchangePointer(T volatile* target, T value) {
+	GetTestEngine()->schedule_next_operation();
 	return std::atomic_exchange((std::atomic<T>*)target, value);
 }
 
@@ -104,7 +108,6 @@ static T* GetStaticInstance(CountOperation count_operation, int thread_num) {
   			printf("thread %d: set state = kDestroy\n", thread_num);
     	}
   	}
-    test_engine->schedule_next_operation();
   	if (state == kCreate) {
   		printf("thread %d: kCreate\n", thread_num);
     	T* new_instance = T::CreateInstance();
@@ -114,7 +117,6 @@ static T* GetStaticInstance(CountOperation count_operation, int thread_num) {
 			sleep(3);
 		else sleep(4);
 #endif
-        test_engine->schedule_next_operation();
     	if (1 == InterlockedIncrement(&instance_count)) {
     		printf("thread %d: count++, count == 1\n", thread_num);
       		InterlockedExchangePointer((T**)(&instance), new_instance);
@@ -123,7 +125,7 @@ static T* GetStaticInstance(CountOperation count_operation, int thread_num) {
       		InterlockedDecrement(&instance_count);
     		printf("thread %d: count--\n", thread_num);
       		if (new_instance) {
-        		delete static_cast<T*>(new_instance);
+        		free_safe(static_cast<T*>(new_instance));
       			printf("thread %d: delete new_instance\n", thread_num);
       		}
     	}
@@ -133,8 +135,7 @@ static T* GetStaticInstance(CountOperation count_operation, int thread_num) {
     	printf("thread %d: exchange, instance, NULL\n", thread_num);
     	if (old_value) {
     		printf("thread %d: old_value = %p\n", thread_num, old_value);
-      		delete static_cast<T*>(old_value);
-			freed[(void*)old_value] = true;
+      		free_safe(static_cast<T*>(old_value));
     		printf("thread %d: delete old_value\n", thread_num);
     	}
     	return NULL;
@@ -150,7 +151,7 @@ public:
     std::map<uint32_t, uint32_t>  _ssrcMap;
 protected:
 	SSRCDatabase();
-	static SSRCDatabase* CreateInstance() { return new SSRCDatabase(); }
+	static SSRCDatabase* CreateInstance() { return new(malloc_safe(sizeof(SSRCDatabase))) SSRCDatabase(); }
 private:
 	friend SSRCDatabase* GetStaticInstance<SSRCDatabase>(CountOperation count_operation, int thread_num);
     static SSRCDatabase* StaticInstance(CountOperation count_operation, int thread_num);
@@ -172,14 +173,13 @@ void SSRCDatabase::ReturnSSRCDatabase(int thread_num){
 SSRCDatabase::SSRCDatabase(){}
 }
 
-int accessMap(webrtc::SSRCDatabase * ssrcdb){
+int accessMap(RacyPointer<webrtc::SSRCDatabase> ssrcdb){
 	return ssrcdb->_ssrcMap.size();
 }
 
 void thread_one(void* args){
     auto test_engine = GetTestEngine();
-	webrtc::SSRCDatabase *ssrcdb = webrtc::SSRCDatabase::GetSSRCDatabase(1);
-    test_engine->schedule_next_operation();
+	RacyPointer<webrtc::SSRCDatabase> ssrcdb(webrtc::SSRCDatabase::GetSSRCDatabase(1));
 	printf("thread 1: ssrcdb = %p\n", ssrcdb);
 	accessMap(ssrcdb);
 #ifdef SLEEP_FOR_RACE
@@ -193,17 +193,11 @@ void thread_two(void* args){
 #ifdef SLEEP_FOR_RACE
 	sleep(2);
 #endif
-	webrtc::SSRCDatabase *ssrcdb = webrtc::SSRCDatabase::GetSSRCDatabase(2);
-    test_engine->schedule_next_operation();
+	RacyPointer<webrtc::SSRCDatabase> ssrcdb(webrtc::SSRCDatabase::GetSSRCDatabase(2));
 	printf("thread 2: ssrcdb = %p\n", ssrcdb);
 #ifdef SLEEP_FOR_RACE
 	sleep(6);
 #endif
-	if(freed.find(ssrcdb) != freed.end())
-	{
-		test_engine->notify_assertion_failure("use after free");
-		return;
-	}
 	accessMap(ssrcdb);
 	printf("thread 2: use ssrcdb = %p\n", ssrcdb);
 }
@@ -219,10 +213,9 @@ void run_iteration()
 #endif
 
     void* args = NULL;
-	freed.clear();
 	webrtc::SSRCDatabase::GetSSRCDatabase(0);
-    ControlledTask<void> t2([&args] { thread_two(args); });
-    ControlledTask<void> t1([&args] { thread_one(args); });
+    ControlledTask<void> t2([&args] { try { thread_two(args); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
+    ControlledTask<void> t1([&args] { try { thread_one(args); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
 
     t2.start();
     t1.start();
@@ -247,7 +240,7 @@ int main()
     {
         auto settings = CreateDefaultSettings();
         settings.with_prioritization_strategy();
-        SystematicTestEngineContext context(settings, 10000);
+        SystematicTestEngineContext context(settings, 1000);
         while (auto iteration = context.next_iteration())
         {
             run_iteration();

@@ -93,9 +93,6 @@ static int fanout_add(struct sock *sk, u16 type_flags, int thread_id)
 
         po->rollover = (packet_rollover*)malloc_safe(sizeof(packet_rollover));
 
-        /* uncomment to catch use after free bugs as well */
-        //test_engine->schedule_next_operation(); 
-
         if (!po->rollover)
             return -ENOMEM;
         printf("thread %d kzalloc, po->rollover = %p\n", thread_id, po->rollover);

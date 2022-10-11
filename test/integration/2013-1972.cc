@@ -134,7 +134,6 @@ int install_user_keyrings(int thread_num)
 		printf("thread %d: malloc\n", thread_num);
 
 		user->uid_keyring = uid_keyring;
-        //test_engine->schedule_next_operation();
 		user->session_keyring = session_keyring;
 	}
 

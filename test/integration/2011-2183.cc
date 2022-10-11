@@ -6,6 +6,7 @@
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
+#include "racy_variable.h"
 // #define TEST_TIME
 
 #define POISON_POINTER_DELTA 0
@@ -19,7 +20,7 @@ typedef unsigned int u32;
 typedef __signed__ int __s32;
 
 struct list_head {
-	struct list_head *next, *prev;
+	RacyPointer<list_head> next, prev;
 };
 
 struct hlist_node {
@@ -67,7 +68,7 @@ static struct hlist_head mm_slots_hash[MM_SLOTS_HASH_HEADS];
 
 static struct mm_slot ksm_mm_head;
 
-#define LIST_HEAD_INIT(name) { &(name), &(name) }
+#define LIST_HEAD_INIT(name) { RacyPointer<list_head>(&(name)), RacyPointer<list_head>(&(name)) }
 // static struct mm_slot ksm_mm_head = {
 	// .mm_list = LIST_HEAD_INIT(ksm_mm_head.mm_list)
 // };
@@ -213,13 +214,10 @@ static struct rmap_item *scan_get_next_rmap_item()
 	if (list_empty(&ksm_mm_head.mm_list))
 		return NULL;
 
-	
-	auto test_engine = GetTestEngine();
-	test_engine->schedule_next_operation();
 	slot = ksm_scan.mm_slot;
 	if (slot == &ksm_mm_head) {
 		spin_lock(ksm_mmlist_lock);
-		slot = list_entry(slot->mm_list.next, struct mm_slot, mm_list);
+		slot = list_entry(slot->mm_list.next.read(), struct mm_slot, mm_list);
 		ksm_scan.mm_slot = slot;
 		spin_unlock(ksm_mmlist_lock);
 next_mm:
@@ -230,7 +228,7 @@ next_mm:
 	mm = slot->mm;
 	if(mm == NULL)
 	{
-		test_engine->notify_assertion_failure("null pointer dereference");
+		GetTestEngine()->notify_assertion_failure("null pointer dereference");
 		return NULL;
 	}
 	printf("thread 1, slot->mm = %p\n", mm);
@@ -238,7 +236,7 @@ next_mm:
 	printf("thread 1, mm->mmap_sem = %p\n", &mm->mmap_sem);
 
 	spin_lock(ksm_mmlist_lock);
-	ksm_scan.mm_slot = list_entry(slot->mm_list.next,
+	ksm_scan.mm_slot = list_entry(slot->mm_list.next.read(),
 						struct mm_slot, mm_list);
 
 	if (ksm_scan.address == 0) {
@@ -357,7 +355,7 @@ int main()
         auto settings = CreateDefaultSettings();
         //settings.with_resource_race_checking_enabled(true);
         settings.with_prioritization_strategy();
-        SystematicTestEngineContext context(settings, 10000);
+        SystematicTestEngineContext context(settings, 1000);
         while (auto iteration = context.next_iteration())
         {
             run_iteration();

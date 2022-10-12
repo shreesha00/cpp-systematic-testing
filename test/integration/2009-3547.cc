@@ -76,6 +76,7 @@ void run_iteration()
 
 int main()
 {
+    /*
     std::cout << "[test] started." << std::endl;
     auto start_time = std::chrono::steady_clock::now();
 
@@ -113,8 +114,83 @@ int main()
   
     std::cout << "[test] done in " << total_time(start_time) << "ms." << std::endl;
     return 0;
+    */      
 
+    std::vector<int> bugs_found;
+    std::vector<int> depths({1, 2, 3, 4, 5, 10});
+    try
+    {
+        auto settings = CreateDefaultSettings();
+        settings.with_random_generator_seed(time(NULL));
+        settings.with_resource_race_checking_enabled(true);
+        settings.with_random_strategy(10);
+        SystematicTestEngineContext context(settings, 1000);
+        while (auto iteration = context.next_iteration())
+        {
+            try
+            {
+                run_iteration();
+            }
+            catch (const std::exception& e)
+            {
+                std::cerr << e.what() << '\n';
+            }
+            
+        }
 
+        auto report = context.report();
+        bugs_found.push_back(report.bugs_found());
+
+        assert(context.total_iterations() == report.iterations(), "Number of iterations is not correct.");
+        assert(context.total_iterations() * 3 == report.total_controlled_operations(), "Number of controlled operations is not correct.");
+        assert(0 == report.total_uncontrolled_threads(), "Number of uncontrolled threads is not correct.");
+    }
+    catch (std::string error)
+    {
+        std::cout << "[test] failed: " << error << std::endl;
+        return 1;
+    }
+    for (auto d : depths)
+    {
+        try
+        {
+            auto settings = CreateDefaultSettings();
+            settings.with_random_generator_seed(time(NULL));
+            settings.with_resource_race_checking_enabled(true);
+            settings.with_prioritization_strategy(d);
+            SystematicTestEngineContext context(settings, 1000);
+            while (auto iteration = context.next_iteration())
+            {
+                try
+                {
+                    run_iteration();
+                }
+                catch (const std::exception& e)
+                {
+                    std::cerr << e.what() << '\n';
+                }
+                
+            }
+
+            auto report = context.report();
+            bugs_found.push_back(report.bugs_found());
+
+            assert(context.total_iterations() == report.iterations(), "Number of iterations is not correct.");
+            assert(context.total_iterations() * 3 == report.total_controlled_operations(), "Number of controlled operations is not correct.");
+            assert(0 == report.total_uncontrolled_threads(), "Number of uncontrolled threads is not correct.");
+        }
+        catch (std::string error)
+        {
+            std::cout << "[test] failed: " << error << std::endl;
+            return 1;
+        }
+    }
+
+    std::cout << "Random Strategy: " << std::dec << static_cast<int>(bugs_found[0]) << std::endl;
+    for (int i = 1; i < bugs_found.size(); i++)
+    {
+        std::cout << "PCT Strategy with depth " << std::dec << depths[i-1] << ": " << std::dec << static_cast<int>(bugs_found[i]) << std::endl;
+    }
     /*
 #ifdef TEST_TIME
     static double run_time_begin;

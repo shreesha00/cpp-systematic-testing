@@ -380,7 +380,7 @@ int main()
     std::cout << "[test] done in " << total_time(start_time) << "ms." << std::endl;
 	*/
 
-	std::vector<int> bugs_found;
+	std::vector<int> bugs_found, context_switches;
     std::vector<int> depths({1, 2, 3, 4, 5, 10});
     try
     {
@@ -404,6 +404,7 @@ int main()
 
         auto report = context.report();
         bugs_found.push_back(report.bugs_found());
+		context_switches.push_back(report.avg_scheduling_decisions());
 
         assert(context.total_iterations() == report.iterations(), "Number of iterations is not correct.");
         assert(context.total_iterations() * 3 == report.total_controlled_operations(), "Number of controlled operations is not correct.");
@@ -438,6 +439,7 @@ int main()
 
             auto report = context.report();
             bugs_found.push_back(report.bugs_found());
+			context_switches.push_back(report.avg_scheduling_decisions());
 
             assert(context.total_iterations() == report.iterations(), "Number of iterations is not correct.");
             assert(context.total_iterations() * 3 == report.total_controlled_operations(), "Number of controlled operations is not correct.");
@@ -453,7 +455,7 @@ int main()
     std::cout << "Random Strategy: " << std::dec << static_cast<int>(bugs_found[0]) << std::endl;
     for (int i = 1; i < bugs_found.size(); i++)
     {
-        std::cout << "PCT Strategy with depth " << std::dec << depths[i-1] << ": " << std::dec << static_cast<int>(bugs_found[i]) << std::endl;
+        std::cout << "PCT Strategy with depth " << std::dec << depths[i-1] << ": " << std::dec << static_cast<int>(bugs_found[i]) << ", scheduling decision: " << std::dec << context_switches[i] << std::endl;
     }
 	return 0;
 }

@@ -1778,12 +1778,34 @@ namespace SystematicTesting
             // Returns the next operation.
             const Operation* next_operation(Operations& operations, const Operation* current) override
             {
+                // Collect the list of operations that are not racing for any object
+                std::vector<const Operation*> non_racing_operations;
+                for (size_t idx = 0; idx < operations.size(); ++idx)
+                {
+                    auto op = operations[idx];
+                    if (!op->get_racy_objects().size())
+                    {
+                        non_racing_operations.push_back(op);
+                    }
+                }
+                
+                // If there exists any operation that does not race for any object
+                if (non_racing_operations.size())
+                {
+                    // Randomly pick one among the set of all non racing operations and schedule the same
+                    size_t index = m_random_generator.next_integer(non_racing_operations.size() - 1);
+                    return record_operation_choice(non_racing_operations[index]);                 
+                }
+
                 // Set priorities of any new enabled operations not in the list
                 set_new_enabled_operation_priorities(operations, current);
 
                 // Get the highest-priority operation id, or if there is only one operation, just return it.
                 auto next_op = operations.size() > 1 ? get_operation_with_highest_priority(operations) : operations[0];
 
+                // Remove the operation to be scheduled next from the priority list
+                m_prioritized_operations.erase(std::find_if(m_prioritized_operations.begin(), m_prioritized_operations.end(), [&](const Operation* op) { return op->id == next_op->id; }));
+                
                 // Remove enabled operations which race with chosen operation from priority list
                 remove_racing_operations(next_op);
 
@@ -1818,17 +1840,14 @@ namespace SystematicTesting
             // Returns if two different operations race with one another
             bool if_race(const Operation* op, const Operation* picked_op)
             {
-                if (op != picked_op)
+                for (auto obj1 : op->get_racy_objects())
                 {
-                    for (auto obj1 : op->get_racy_objects())
+                    for (auto obj2 : picked_op->get_racy_objects())
                     {
-                        for (auto obj2 : picked_op->get_racy_objects())
+                        if (obj1 == obj2)
                         {
-                            if (obj1 == obj2)
-                            {
-                                m_logger.log_debug("[st::strategy] removed operation '", op->id, "' from priority list as it was racing with picked operation '", picked_op->id, "'.");
-                                return true;
-                            }
+                            m_logger.log_debug("[st::strategy] removed operation '", op->id, "' from priority list as it was racing with picked operation '", picked_op->id, "'.");
+                            return true;
                         }
                     }
                 }

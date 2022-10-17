@@ -3,66 +3,73 @@
 #include "systematic_testing_resources.h"
 #include <iostream>
 
-int x, y, z;
-Resources::SynchronizedResource *l1, *l2, *l3;
-void thread_one()
-{
-    l1->acquire();
-    x = 1;
-    l1->release();
-}
-
+int x, y, z, w;
+Resources::SynchronizedResource *xl, *yl, *zl, *wl;
+int a, b;
 void thread_two()
 {
-    l1->acquire();
-    x++;
-    l1->release();
-    l2->acquire();
-    y++;
-    l2->release();
-    l3->acquire();
-    z = 3;
-    l3->release();
+    xl->acquire();
+    x = 1;
+    xl->release();
+    xl->acquire();
+    a = x;
+    xl->release();
+    yl->acquire();
+    y = a;
+    yl->release();
+    wl->acquire();
+    if (w != 1)
+    {
+        wl->release();
+        GetTestEngine()->pause_operation_until_condition([&] { return w == 1; });
+    }
+    else
+    {
+        wl->release();
+    }
+    yl->acquire();
+    b = y;
+    yl->release();
+    zl->acquire();
+    z = a + b;
+    zl->release();
+
+    
 }
 
-void thread_three()
+void thread_one()
 {
-    l2->acquire();
-    y = 2;
-    l2->release();
-    l3->acquire();
-    z++;
-    l3->release();
-    l1->acquire();
-    l2->acquire();
-    l3->acquire();
-    if (x + y + z >= 9)
+    std::cout << "started thread_one" << std::endl;
+    xl->acquire();
+    x++;
+    xl->release();
+    yl->acquire();
+    y++;
+    yl->release();
+    wl->acquire();
+    w = 1;
+    wl->release();
+    zl->acquire();
+    if (z >= 5)
     {
-        (GetTestEngine())->notify_assertion_failure("Bug!");
+        GetTestEngine()->notify_assertion_failure("Bug!");
     }
-    l3->release();
-    l2->release();
-    l1->release();
+    zl->release();
 }
 
 void run_iteration()
 {
-    l1 = new Resources::SynchronizedResource();
-    l2 = new Resources::SynchronizedResource();
-    l3 = new Resources::SynchronizedResource();
+    xl = new Resources::SynchronizedResource();
+    yl = new Resources::SynchronizedResource();
+    zl = new Resources::SynchronizedResource();
+    wl = new Resources::SynchronizedResource();
     ControlledTask<void> t1(thread_one);
     ControlledTask<void> t2(thread_two);
-    ControlledTask<void> t3(thread_three);
     t1.start();
     t2.start();
-    t3.start();
     t1.wait();
     t2.wait();
-    t3.wait();
-    x = y = z = 0;
-    delete l1;
-    delete l2;
-    delete l3;
+    x = y = z = a = b = w = 0;
 }
 
 int main()
@@ -76,7 +83,7 @@ int main()
         settings.with_random_generator_seed(time(NULL));
         settings.with_resource_race_checking_enabled(true);
         settings.with_pos_strategy();
-        SystematicTestEngineContext context(settings, 1000);
+        SystematicTestEngineContext context(settings, 10000);
         while (auto iteration = context.next_iteration())
         {
             run_iteration();
@@ -88,7 +95,7 @@ int main()
         //std::cout << context.total_iterations() << std::endl;
         //std::cout << report.total_controlled_operations() << std::endl;
         assert(context.total_iterations() == report.iterations(), "Number of iterations is not correct.");
-        assert(context.total_iterations() * 4 == report.total_controlled_operations(), "Number of controlled operations is not correct.");
+        assert(context.total_iterations() * 3 == report.total_controlled_operations(), "Number of controlled operations is not correct.");
         assert(0 == report.total_uncontrolled_threads(), "Number of uncontrolled threads is not correct.");
     }
     catch (std::string error)

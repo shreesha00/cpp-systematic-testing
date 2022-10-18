@@ -158,7 +158,6 @@ RacyPointer<struct snd_seq_client_port>snd_seq_create_port(struct snd_seq_client
 
 static int snd_seq_ioctl_create_port(struct snd_seq_client *client, void *arg)
 {
-	auto test_engine = GetTestEngine();
 	struct snd_seq_port_info *info = (snd_seq_port_info*)arg;
 	RacyPointer<struct snd_seq_client_port>port;
 

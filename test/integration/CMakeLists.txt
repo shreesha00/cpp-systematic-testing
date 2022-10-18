@@ -1,4 +1,4 @@
-﻿file(GLOB test_files "*.cc")
+﻿file(GLOB test_files "CVE_Benchmarks/*.cc" "*.cc")
 foreach(test_file ${test_files})
     get_filename_component(test_name ${test_file} NAME_WE)
     add_executable(${test_name} ${test_file})

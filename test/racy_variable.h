@@ -18,19 +18,10 @@
 
 #include "systematic_testing.h"
 #include "malloc_wrapper.h"
+#include "null_safe_ptr.h"
 
 using namespace std::chrono_literals;
 using namespace SystematicTesting;
-
-class NullDereferenceException : public std::exception 
-{ 
-public:
-    std::string what()
-    {
-        return "NULL pointer dereferenc detected";
-    }
-};
-
 
 template<typename VariableType>
 class RacyVariable

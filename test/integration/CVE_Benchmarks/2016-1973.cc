@@ -59,7 +59,6 @@ inline T InterlockedExchangePointer(T volatile* target, T value) {
 
 template <class T>
 static T* GetStaticInstance(CountOperation count_operation, int thread_num) {
-    auto test_engine = GetTestEngine();
 	static volatile std::atomic_long instance_count(0);
 	static T* volatile instance = NULL;
 
@@ -178,7 +177,6 @@ int accessMap(RacyPointer<webrtc::SSRCDatabase> ssrcdb){
 }
 
 void thread_one(void* args){
-    auto test_engine = GetTestEngine();
 	RacyPointer<webrtc::SSRCDatabase> ssrcdb(webrtc::SSRCDatabase::GetSSRCDatabase(1));
 	printf("thread 1: ssrcdb = %p\n", ssrcdb);
 	accessMap(ssrcdb);
@@ -189,7 +187,6 @@ void thread_one(void* args){
 }
 
 void thread_two(void* args){
-    auto test_engine = GetTestEngine();
 #ifdef SLEEP_FOR_RACE
 	sleep(2);
 #endif

@@ -8,6 +8,7 @@
 #include "systematic_testing_resources.h"
 #include "racy_variable.h" 
 #include "malloc_wrapper.h"
+#include "null_safe_ptr.h"
 // #define TEST_TIME
 
 typedef __signed__ int __s32;
@@ -106,7 +107,6 @@ void key_put(struct key *key){}
 
 int install_user_keyrings(int thread_num)
 {
-    auto test_engine = GetTestEngine();
 	RacyPointer<struct user_struct> user;
 	const struct cred *cred;
 	struct key *uid_keyring, *session_keyring;
@@ -156,9 +156,8 @@ error:
 key_ref_t lookup_user_key(key_serial_t id, unsigned long lflags,
 			  key_perm_t perm)
 {
-    auto test_engine = GetTestEngine();
 	const struct cred *cred;
-	struct key *key;
+	NullSafePtr<struct key> key;
 	key_ref_t key_ref, skey_ref;
 	int ret;
 
@@ -178,11 +177,6 @@ try_again:
 		}
 
 		key = cred->user->session_keyring;
-		if(key == NULL)
-        {
-            test_engine->notify_assertion_failure("NULL ptr dereference");
-            goto error;
-        }
 		atomic_inc(&key->usage);
 		printf("thread 1: dereference key\n");
 		key_ref = make_key_ref(key, 1);

@@ -7,6 +7,7 @@
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
 #include "racy_variable.h"
+#include "null_safe_ptr.h"
 // #define TEST_TIME
 
 #define POISON_POINTER_DELTA 0
@@ -208,7 +209,7 @@ static struct mm_slot *get_mm_slot(struct mm_struct *mm)
 
 static struct rmap_item *scan_get_next_rmap_item()
 {
-	struct mm_struct *mm;
+	NullSafePtr<struct mm_struct> mm;
 	struct mm_slot *slot;
 
 	if (list_empty(&ksm_mm_head.mm_list))
@@ -226,11 +227,6 @@ next_mm:
 	}
 
 	mm = slot->mm;
-	if(mm == NULL)
-	{
-		GetTestEngine()->notify_assertion_failure("null pointer dereference");
-		return NULL;
-	}
 	printf("thread 1, slot->mm = %p\n", mm);
 	down_read(&mm->mmap_sem);
 	printf("thread 1, mm->mmap_sem = %p\n", &mm->mmap_sem);
@@ -328,8 +324,8 @@ void run_iteration()
 	ksm_mmlist_lock = new Resources::SynchronizedResource();
 
 	void* args1 = NULL;
-	ControlledTask<void> t1([&args1] { thread_one(args1); });
-	ControlledTask<void> t2([&mm_test] { thread_two(&mm_test); });
+	ControlledTask<void> t1([&args1] { try { thread_one(args1); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
+	ControlledTask<void> t2([&mm_test] { try { thread_two(&mm_test); } catch (std::exception& e) { std::cout << e.what() << std::endl; }});
 	t1.start();
 	t2.start();
 

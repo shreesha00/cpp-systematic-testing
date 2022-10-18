@@ -1,81 +1,176 @@
-//#include <pthread.h>
-#include <stdio.h>
-//#include <unistd.h>
 #include <iostream>
-#include <stdlib.h>
+//#include "pthread.h"
+#include <stdio.h>
+#include <malloc.h>
+//#include <unistd.h>
 #include <time.h>
+
 
 #include "test.h"
 #include "controlled_task.h"
 #include "systematic_testing_resources.h"
-#include "racy_variable.h"
+#include "racy_variable.h" 
 #include "malloc_wrapper.h"
+#include "null_safe_ptr.h"
+
 // #define TEST_TIME
 
-using namespace std;
-using namespace SystematicTesting;
+#define EOPNOTSUPP      45
+#define ENOKEY          132
+#define EKEYEXPIRED     133
+#define EKEYREVOKED     134
+#define KEY_FLAG_DEAD           1
+#define KEY_FLAG_REVOKED        2
+#define KEY_FLAG_INVALIDATED    7
 
-struct pipe_inode_info
+struct assoc_array
 {
-    unsigned int writers;
-    unsigned int readers;
-
-    pipe_inode_info()
-    {
-        writers = 0;
-        readers = 0;
-    }
-};
-
-struct INODE
-{
-    Resources::SynchronizedResource* i_mutex;
-    RacyPointer<struct pipe_inode_info> i_pipe;
-
-    INODE()
-    {
-        i_mutex = new Resources::SynchronizedResource();
-        i_pipe.write_wo_interleaving(new pipe_inode_info());
-    }
+    unsigned long nr_leaves_on_tree;
 };
 
 
-struct INODE* inode;
-
-void/*static void**/ pipe_write_open(void* arg)
+struct key
 {
-    inode->i_mutex->acquire();
-    inode->i_pipe->readers++;
-    cout << "threadA: " << std::hex << inode->i_pipe << endl;
+    unsigned long flags;
+    Resources::SynchronizedResource* sem;
+    NullSafePtr<struct assoc_array> keys;
+};
 
-    inode->i_mutex->release();
+int key_validate(const RacyPointer<struct key> key)
+{
+    unsigned long flags = key->flags;
+    printf("flags = %ld\n", flags);
+
+    if (flags & (1 << KEY_FLAG_INVALIDATED))
+        return -ENOKEY;
+
+    if (flags & ((1 << KEY_FLAG_REVOKED) |
+                 (1 << KEY_FLAG_DEAD)))
+        return -EKEYREVOKED;
+
+    return 0;
 }
 
-void/*static void**/ involve(void* arg)
+static long keyring_read(const RacyPointer<struct key> keyring)
 {
-    inode->i_mutex->acquire();
-    inode->i_pipe = NULL;
-    inode->i_mutex->release();
-    cout << "threadB: " << std::hex << inode->i_pipe << endl;
+    unsigned long nr_keys;
+    nr_keys = keyring->keys->nr_leaves_on_tree;
+    printf("nr_keys = %ld\n", nr_keys);
+    return nr_keys;
+}
+
+long keyctl_read_key(RacyPointer<struct key> key)
+{
+    long ret = key_validate(key);
+
+    if (ret == 0)
+    {
+        ret = -EOPNOTSUPP;
+        key->sem->acquire();
+        ret = keyring_read(key);
+        key->sem->release();
+    }
+    return ret;
+}
+
+
+void keyring_revoke(RacyPointer<struct key> keyring)
+{
+    keyring->keys = NULL;
+}
+
+void key_revoke(RacyPointer<struct key> key)
+{
+    key->sem->acquire();
+    key->flags = KEY_FLAG_REVOKED;
+    puts("revoke key");
+    keyring_revoke(key);
+    key->sem->release();
+}
+
+void thread1(void* arg)
+{
+    puts("thread 1");
+    RacyPointer<struct key> key;
+    key = (struct key*)arg;
+    key_revoke(key);
+}
+
+void thread2(void* arg)
+{
+    puts("thread 2");
+    RacyPointer<struct key> key;
+    key = (struct key*)arg;
+    keyctl_read_key(key);
 }
 
 void run_iteration()
 {
-    inode = new INODE();
-    void* args(NULL);
-    ControlledTask<void> t1([&args] { try { pipe_write_open(args); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
-    ControlledTask<void> t2([&args] { try { involve(args); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
-    t1.start();
+    struct key* key = (struct key*)malloc(sizeof(struct key));
+    key->flags = 0;
+    //pthread_mutex_init(&(key->sem), NULL);
+    key->sem = new Resources::SynchronizedResource();
+    key->keys = (struct assoc_array*)malloc(sizeof(struct assoc_array));
+    key->keys->nr_leaves_on_tree = 1;
+
+    /*struct key key;
+    key.flags = 0;*/
+
+    /*
+    pthread_t t1, t2;
+
+    pthread_create(&t2, NULL, thread2, key);
+    pthread_create(&t1, NULL, thread1, key);
+
+    pthread_join(t2, NULL);
+    pthread_join(t1, NULL);
+    */
+    ControlledTask<void> t1([&key] { try { thread1(key); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
+    ControlledTask<void> t2([&key] { try { thread2(key); } catch (std::exception& e) { std::cout << e.what() << std::endl; } });
+
     t2.start();
-    t1.wait();
+    t1.start();
+    
     t2.wait();
-    delete inode;
+    t1.wait();
     printf("\nprogram-successful-exit\n");
 }
 
-
 int main()
 {
+    /*
+#ifdef TEST_TIME
+    static double run_time_begin;
+    static double run_time_end;
+    static double run_time_total;
+    run_time_begin = clock();
+#endif
+    struct key* key = (struct key*)malloc(sizeof(struct key));
+    key->flags = 0;
+    //pthread_mutex_init(&(key->sem), NULL);
+    key->sem = new Resources::SynchronizedResource();
+    key->keys = (struct assoc_array*)malloc(sizeof(struct assoc_array));
+    key->keys->nr_leaves_on_tree = 1;
+
+    //struct key key;
+    //key.flags = 0;
+
+    pthread_t t1, t2;
+
+    pthread_create(&t2, NULL, thread2, key);
+    pthread_create(&t1, NULL, thread1, key);
+
+    pthread_join(t2, NULL);
+    pthread_join(t1, NULL);
+
+    printf("\nprogram-successful-exit\n");
+#ifdef TEST_TIME
+    run_time_end = clock();
+    run_time_total = run_time_end - run_time_begin;
+    printf("test-the-total-time: %.3lf\n", (double)(run_time_total/CLOCKS_PER_SEC)*1000);
+#endif
+    */
+
     /*
     std::cout << "[test] started." << std::endl;
     auto start_time = std::chrono::steady_clock::now();
@@ -83,25 +178,20 @@ int main()
     try
     {
         auto settings = CreateDefaultSettings();
+        settings.with_resource_race_checking_enabled(true);
         settings.with_random_generator_seed(time(NULL));
         settings.with_prioritization_strategy(10);
         SystematicTestEngineContext context(settings, 1000);
         while (auto iteration = context.next_iteration())
         {
-            try
-            {
-                run_iteration();
-            }
-            catch (const std::exception& e)
-            {
-                std::cerr << e.what() << '\n';
-            }
-            
+            run_iteration();
         }
 
         auto report = context.report();
         std::cout << report.to_string() << std::endl;
 
+        //std::cout << context.total_iterations() << std::endl;
+        //std::cout << report.total_controlled_operations() << std::endl;
         assert(context.total_iterations() == report.iterations(), "Number of iterations is not correct.");
         assert(context.total_iterations() * 3 == report.total_controlled_operations(), "Number of controlled operations is not correct.");
         assert(0 == report.total_uncontrolled_threads(), "Number of uncontrolled threads is not correct.");
@@ -114,16 +204,15 @@ int main()
   
     std::cout << "[test] done in " << total_time(start_time) << "ms." << std::endl;
     return 0;
-    */      
-
+    */
     std::vector<int> bugs_found, context_switches;
     std::vector<int> depths({1, 2, 3, 4, 5, 10});
     try
     {
         auto settings = CreateDefaultSettings();
         settings.with_random_generator_seed(time(NULL));
-        settings.with_resource_race_checking_enabled(true);
         settings.with_random_strategy(10);
+        settings.with_resource_race_checking_enabled(true);
         SystematicTestEngineContext context(settings, 1000);
         while (auto iteration = context.next_iteration())
         {
@@ -139,7 +228,7 @@ int main()
         }
 
         auto report = context.report();
-        bugs_found.push_back(report.bugs_found()); 
+        bugs_found.push_back(report.bugs_found());
         context_switches.push_back(report.avg_scheduling_decisions());
 
         assert(context.total_iterations() == report.iterations(), "Number of iterations is not correct.");
@@ -157,8 +246,8 @@ int main()
         {
             auto settings = CreateDefaultSettings();
             settings.with_random_generator_seed(time(NULL));
-            settings.with_resource_race_checking_enabled(true);
             settings.with_prioritization_strategy(d);
+            settings.with_resource_race_checking_enabled(true);
             SystematicTestEngineContext context(settings, 1000);
             while (auto iteration = context.next_iteration())
             {
@@ -193,32 +282,4 @@ int main()
     {
         std::cout << "PCT Strategy with depth " << std::dec << depths[i-1] << ": " << std::dec << static_cast<int>(bugs_found[i]) << ", scheduling decision: " << std::dec << context_switches[i] << std::endl;
     }
-    /*
-#ifdef TEST_TIME
-    static double run_time_begin;
-    static double run_time_end;
-    static double run_time_total;
-    run_time_begin = clock();
-#endif
-
-    pthread_t t1, t2;
-
-    pthread_create(&t1, NULL, pipe_write_open, NULL);
-    pthread_create(&t2, NULL, involve, NULL);
-
-    pthread_join(t1, NULL);
-    pthread_join(t2, NULL);
-
-    printf("\nprogram-successful-exit\n");
-
-
-#ifdef TEST_TIME
-    run_time_end = clock();
-    run_time_total = run_time_end - run_time_begin;
-    printf("test-the-total-time: %.3lf\n", (double)(run_time_total/CLOCKS_PER_SEC)*1000);
-#endif
-
-    */
-    
-    return 0;
 }

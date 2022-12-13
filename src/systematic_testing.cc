@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include "systematic_testing.h"
+#include "optional.h"
 
 static SystematicTesting::TestEngine* g_pEngine = nullptr;
 
@@ -27,7 +28,7 @@ SystematicTesting::TestEngine* SystematicTesting::GetTestEngine()
     return g_pEngine;
 }
 
-thread_local std::optional<size_t> tls_executing_op_id = std::nullopt;
+thread_local utility::optional<size_t> tls_executing_op_id = utility::nullopt;
 
 void SystematicTesting::Runtime::set_thread_local_operation_state(size_t op_id)
 {
@@ -38,11 +39,11 @@ void SystematicTesting::Runtime::remove_thread_local_operation_state(size_t op_i
 {
     if (tls_executing_op_id.has_value() && tls_executing_op_id.value() == op_id)
     {
-        tls_executing_op_id = std::nullopt;
+        tls_executing_op_id = utility::nullopt;
     }
 }
 
-std::optional<size_t> SystematicTesting::Runtime::get_thread_local_executing_operation_id()
+utility::optional<size_t> SystematicTesting::Runtime::get_thread_local_executing_operation_id()
 {
     return tls_executing_op_id;
 }

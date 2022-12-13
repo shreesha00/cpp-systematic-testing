@@ -10,7 +10,7 @@
 
 using namespace SystematicTesting;
 
-void assert(bool predicate, std::string error)
+void test_assert(bool predicate, std::string error)
 {
     if (!predicate)
     {
@@ -58,7 +58,7 @@ public:
 
     void TakeControl()
     {
-        assert(!m_is_attached, "The test engine is already attached.");
+        test_assert(!m_is_attached, "The test engine is already attached.");
         m_is_attached = true;
         GetTestEngine()->attach();
     }

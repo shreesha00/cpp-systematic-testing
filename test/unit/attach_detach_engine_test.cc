@@ -22,9 +22,9 @@ int main()
         auto report = context.report();
         std::cout << report.to_string() << std::endl;
 
-        assert(context.total_iterations() == report.iterations(), "Number of iterations is not correct.");
-        assert(context.total_iterations() * 1 == report.total_controlled_operations(), "Number of controlled operations is not correct.");
-        assert(0 == report.total_uncontrolled_threads(), "Number of uncontrolled threads is not correct.");
+        test_assert(context.total_iterations() == report.iterations(), "Number of iterations is not correct.");
+        test_assert(context.total_iterations() * 1 == report.total_controlled_operations(), "Number of controlled operations is not correct.");
+        test_assert(0 == report.total_uncontrolled_threads(), "Number of uncontrolled threads is not correct.");
     }
     catch (std::string error)
     {

@@ -15,7 +15,7 @@
 #include <list>
 #include <map>
 #include <numeric>
-#include <optional>
+#include "optional.h"
 #include <set>
 #include <sstream>
 #include <string>
@@ -69,12 +69,24 @@ namespace SystematicTesting
         {
         }
 
+        void print_var_args() const
+        {
+            std::cout << std::endl;
+        }
+
+        template <class Arg, class... Args>
+        void print_var_args(const Arg& first, const Args&... rest) const
+        {
+            std::cout << first;
+            print_var_args(rest...);
+        }
+
         template<class... Args>
         void log_error(const Args&... args) const
         {
             if (m_verbosity_level >= VerbosityLevel::Error)
             {
-                (std::cout << ... << args) << std::endl;
+                print_var_args(args...);
             }
         }
 
@@ -83,7 +95,7 @@ namespace SystematicTesting
         {
             if (m_verbosity_level >= VerbosityLevel::Warning)
             {
-                (std::cout << ... << args) << std::endl;
+                print_var_args(args...);
             }
         }
 
@@ -92,7 +104,7 @@ namespace SystematicTesting
         {
             if (m_verbosity_level >= VerbosityLevel::Info)
             {
-                (std::cout << ... << args) << std::endl;
+                print_var_args(args...);
             }
         }
 
@@ -101,7 +113,7 @@ namespace SystematicTesting
         {
             if (m_verbosity_level >= VerbosityLevel::Debug)
             {
-                (std::cout << ... << args) << std::endl;
+                print_var_args(args...);
             }
         }
 
@@ -110,15 +122,28 @@ namespace SystematicTesting
         {
             if (m_verbosity_level >= VerbosityLevel::Exhaustive)
             {
-                (std::cout << ... << args) << std::endl;
+                print_var_args(args...);
             }
+        }
+
+
+        static void to_stream(std::ostringstream&)
+        {
+            return;
+        }
+
+        template<class Arg, class... Args>
+        static void to_stream(std::ostringstream& result, const Arg& first, const Args&... args)
+        {
+            result << first;
+            to_stream(result, args...);
         }
 
         template<class... Args>
         static std::string format(const Args&... args)
         {
             std::ostringstream result;
-            (result << ... << args);
+            to_stream(result, args...);
             return result.str();
         }
 
@@ -706,7 +731,7 @@ namespace SystematicTesting
                 m_cv(),
                 m_is_scheduled(false),
                 m_dependencies(),
-                m_dependent_resource_id(std::nullopt),
+                m_dependent_resource_id(utility::nullopt),
                 m_child_op_count(0)
             {
             }
@@ -752,7 +777,7 @@ namespace SystematicTesting
             std::vector<std::function<bool()>> m_dependencies;
 
             // The id of the resource that this operation is waiting for, if any.
-            std::optional<size_t> m_dependent_resource_id;
+            utility::optional<size_t> m_dependent_resource_id;
 
             // The count of child operations created by this operation.
             size_t m_child_op_count;
@@ -1099,9 +1124,9 @@ namespace SystematicTesting
         SYSTEST_API void remove_thread_local_operation_state(size_t op_id);
 
         // Returns the id of the currently executing controlled operation.
-        SYSTEST_API std::optional<size_t> get_thread_local_executing_operation_id();
+        SYSTEST_API utility::optional<size_t> get_thread_local_executing_operation_id();
 #else
-        thread_local std::optional<size_t> tls_executing_op_id = std::nullopt;
+        thread_local utility::optional<size_t> tls_executing_op_id = utility::nullopt;
 
         void set_thread_local_operation_state(size_t op_id)
         {
@@ -1112,11 +1137,11 @@ namespace SystematicTesting
         {
             if (tls_executing_op_id.has_value() && tls_executing_op_id.value() == op_id)
             {
-                tls_executing_op_id = std::nullopt;
+                tls_executing_op_id = utility::nullopt;
             }
         }
 
-        std::optional<size_t> get_thread_local_executing_operation_id()
+        utility::optional<size_t> get_thread_local_executing_operation_id()
         {
             return tls_executing_op_id;
         }
@@ -1700,14 +1725,16 @@ namespace SystematicTesting
             ReplayStrategy& operator=(ReplayStrategy const&) = delete;
 
             // Prepares for the next iteration.
-            void prepare_next_iteration([[maybe_unused]] size_t iteration) override
+            void prepare_next_iteration(size_t iteration) override
             {
+                (void)iteration;
                 m_execution_path.reset();
             }
 
             // Returns the next operation.
-            const Operation* next_operation(Operations& operations, [[maybe_unused]] const Operation* current) override
+            const Operation* next_operation(Operations& operations, const Operation* current) override
             {
+                (void)current;
                 std::string step = m_trace[m_execution_path.length()];
                 size_t op_id = std::stoull(step);
                 auto op = operations.get_if_enabled(op_id);
@@ -1737,8 +1764,9 @@ namespace SystematicTesting
             }
 
             // Returns the next integer choice between 0 and the specified inclusive max value.
-            size_t next_integer([[maybe_unused]] size_t max_value) override
+            size_t next_integer(size_t max_value) override
             {
+                (void)max_value;
                 std::string step = m_trace[m_execution_path.length()];
                 if (step.size() <= 5 || step.substr(0, 4) != "int(" || step.back() != ')')
                 {
@@ -1817,7 +1845,7 @@ namespace SystematicTesting
             m_logger.log_info("[st::engine] initialized the test engine.");
         }
 
-        // Prepares the engine for a new test iteration. This allows optional test initialization code to execute
+        // Prepares the engine for a new test iteration. This allows utility::optional test initialization code to execute
         // without the execution being controlled until the engine is attached.
         void prepare()
         {
@@ -1902,9 +1930,9 @@ namespace SystematicTesting
             }
         }
 
-        // Creates a new operation and returns its unique id, or nullopt if the engine is detached
+        // Creates a new operation and returns its unique id, or utility::nullopt if the engine is detached
         // or the current thread is not controlled.
-        std::optional<size_t> create_next_operation()
+        utility::optional<size_t> create_next_operation()
         {
             std::unique_lock<std::mutex> lock(m_lock);
             if (auto current_op = get_executing_operation_if(m_status == Status::Attached))
@@ -1916,7 +1944,7 @@ namespace SystematicTesting
 
             m_logger.log_debug("[st::engine] unable to create next operation from detached thread '",
                     std::this_thread::get_id(), "'.");
-            return std::nullopt;
+            return utility::nullopt;
         }
 
         // Starts executing the operation with the specified id.
@@ -1976,9 +2004,9 @@ namespace SystematicTesting
             }
         }
 
-        // Returns the id of the controlled operation executing in the current thread, or nullopt if
+        // Returns the id of the controlled operation executing in the current thread, or utility::nullopt if
         // the engine is not attached or the current thread is not controlled.
-        std::optional<size_t> current_operation_id()
+        utility::optional<size_t> current_operation_id()
         {
             std::unique_lock<std::mutex> lock(m_lock);
             if (auto current_op = get_executing_operation_if(m_status == Status::Attached))
@@ -1987,12 +2015,12 @@ namespace SystematicTesting
             }
             else
             {
-                return std::nullopt;
+                return utility::nullopt;
             }
         }
 
-        // Creates a new resource and returns its unique id, or nullopt if the engine is detached.
-        std::optional<size_t> create_next_resource()
+        // Creates a new resource and returns its unique id, or utility::nullopt if the engine is detached.
+        utility::optional<size_t> create_next_resource()
         {
             // We allow creating resources either when the engine is attached or when it is
             // preparing for a new iteration.
@@ -2004,7 +2032,7 @@ namespace SystematicTesting
                 return resource_id;
             }
 
-            return std::nullopt;
+            return utility::nullopt;
         }
 
         // Acquires the resource with the specified id.
@@ -2159,7 +2187,7 @@ namespace SystematicTesting
 
         // Returns true if the specified resource and the currently executing thread
         // are both attached to the engine.
-        bool is_resource_attached(std::optional<size_t> resource_id)
+        bool is_resource_attached(utility::optional<size_t> resource_id)
         {
             std::unique_lock<std::mutex> lock(m_lock);
             bool is_attached = false;
@@ -2438,7 +2466,7 @@ namespace SystematicTesting
             }
         }
 
-        // Completes the specified currently executing operation and optionally schedules the next operation.
+        // Completes the specified currently executing operation and utility::optionally schedules the next operation.
         void complete_operation(Runtime::Operation* const current_op, bool schedule_next_op, std::unique_lock<std::mutex>& lock)
         {
             if (m_status == Status::Attached)
@@ -2707,7 +2735,7 @@ namespace SystematicTesting
                     {
                         auto blocked_op = get_operation(blocked_op_id);
                         blocked_op->m_status = Runtime::OperationStatus::Enabled;
-                        blocked_op->m_dependent_resource_id = std::nullopt;
+                        blocked_op->m_dependent_resource_id = utility::nullopt;
                         m_operations.enable(blocked_op->id);
                     }
 
@@ -2792,7 +2820,7 @@ namespace SystematicTesting
         }
 
         // Returns the id of the currently executing controlled operation.
-        std::optional<size_t> get_executing_operation_id() const noexcept
+        utility::optional<size_t> get_executing_operation_id() const noexcept
         {
             return Runtime::get_thread_local_executing_operation_id();
         }
